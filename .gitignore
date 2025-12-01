@@ -1,0 +1,34 @@
+# --- Dependencies ---
+# This will ignore node_modules in backend, frontend, or anywhere else
+node_modules/
+**/node_modules/
+
+# --- Environment files ---
+.env
+*.env
+**/.env
+**/.env.*
+
+# --- Logs ---
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+logs
+*.log
+
+# --- Build outputs ---
+# Frontend (Vite / React)
+frontend/dist/
+frontend/.vite/
+
+# Backend (Node / TS builds – tweak if your output dir is different)
+backend/dist/
+backend/build/
+
+# --- Editor / OS cruft ---
+.DS_Store
+Thumbs.db
+
+# --- IDEs ---
+.vscode/
+.idea/

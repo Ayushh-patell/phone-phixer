@@ -476,6 +476,10 @@ router.post("/use-code", protect, async (req, res) => {
     if (user.referredBy) {
       return res.status(400).json({ message: "Referral already applied" });
     }
+    
+    if (user.referralCode === referralCode) {
+      return res.status(400).json({ message: "Cannot use your own Referral" });
+    }
 
     const referrer = await User.findOne({ referralCode });
     if (!referrer) {

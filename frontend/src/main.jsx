@@ -7,6 +7,7 @@ import ServicePage from "./pages/Services.jsx";
 import LoginPage from "./pages/Login.jsx";
 import SignupPage from "./pages/SIgnup.jsx";
 import VerifyEmailPage from "./pages/EmailVerifcation.jsx";
+import "./lib/firebase.js"
 
 const router = createBrowserRouter([
   {

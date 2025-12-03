@@ -46,7 +46,7 @@ function buildBinaryTree(treeData) {
 
 // Small placeholder for an empty child slot
 const EmptyChildSlot = () => (
-  <div className="rounded-xl border border-dashed border-slate-700/70 bg-slate-950/30 px-3 py-2 text-[10px] text-slate-500 min-w-[90px] text-center">
+  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-[10px] text-slate-400 min-w-[90px] text-center">
     Empty
   </div>
 );
@@ -62,15 +62,15 @@ const TreeNode = ({ node, depth = 0, maxDepth = 6 }) => {
   return (
     <div className="flex flex-col items-center">
       {/* Node box */}
-      <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-xs min-w-[120px] flex flex-col items-center shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs min-w-[120px] flex flex-col items-center shadow-sm">
         <div className="flex items-center gap-1 mb-1">
           <span className="h-2 w-2 rounded-full bg-emerald-400" />
-          <span className="font-medium text-slate-100 truncate max-w-[100px]">
+          <span className="font-medium text-slate-900 truncate max-w-[100px]">
             {node.name || "User"}
           </span>
         </div>
-        <div className="text-[11px] text-slate-400">Self UV</div>
-        <div className="text-lg font-semibold text-slate-50">
+        <div className="text-[11px] text-slate-500">Self UV</div>
+        <div className="text-lg font-semibold text-slate-900">
           {node.selfVolume ?? 0}
         </div>
       </div>
@@ -79,7 +79,7 @@ const TreeNode = ({ node, depth = 0, maxDepth = 6 }) => {
       {hasChildren && (
         <>
           {/* Vertical line from parent downwards */}
-          <div className="h-4 w-px bg-slate-700" />
+          <div className="h-4 w-px bg-slate-300" />
 
           {/* Children row: always two slots if at least one child exists */}
           <div className="flex w-full items-start justify-between gap-4">
@@ -87,7 +87,7 @@ const TreeNode = ({ node, depth = 0, maxDepth = 6 }) => {
             <div className="flex-1 flex justify-center">
               {showLeft ? (
                 <div className="flex flex-col items-center">
-                  <div className="h-4 w-px bg-slate-700" />
+                  <div className="h-4 w-px bg-slate-300" />
                   <TreeNode
                     node={node.left}
                     depth={depth + 1}
@@ -96,7 +96,7 @@ const TreeNode = ({ node, depth = 0, maxDepth = 6 }) => {
                 </div>
               ) : (
                 <div className="flex flex-col items-center">
-                  <div className="h-4 w-px bg-slate-700" />
+                  <div className="h-4 w-px bg-slate-300" />
                   <EmptyChildSlot />
                 </div>
               )}
@@ -106,7 +106,7 @@ const TreeNode = ({ node, depth = 0, maxDepth = 6 }) => {
             <div className="flex-1 flex justify-center">
               {showRight ? (
                 <div className="flex flex-col items-center">
-                  <div className="h-4 w-px bg-slate-700" />
+                  <div className="h-4 w-px bg-slate-300" />
                   <TreeNode
                     node={node.right}
                     depth={depth + 1}
@@ -115,7 +115,7 @@ const TreeNode = ({ node, depth = 0, maxDepth = 6 }) => {
                 </div>
               ) : (
                 <div className="flex flex-col items-center">
-                  <div className="h-4 w-px bg-slate-700" />
+                  <div className="h-4 w-px bg-slate-300" />
                   <EmptyChildSlot />
                 </div>
               )}
@@ -169,24 +169,24 @@ const ReferralTree = () => {
   const rootNode = useMemo(() => buildBinaryTree(treeData), [treeData]);
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+    <section className="rounded-2xl border border-slate-200 bg-white p-6">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h2 className="text-lg font-semibold">Referral tree</h2>
-          <p className="text-xs text-slate-400">
+          <h2 className="text-lg font-semibold text-slate-900">Referral tree</h2>
+          <p className="text-xs text-slate-500">
             Binary tree view of your downline (name + self UV).
           </p>
         </div>
         {treeData && (
-          <div className="text-[11px] text-slate-400 text-right">
+          <div className="text-[11px] text-slate-500 text-right">
             <div>
               Nodes:{" "}
-              <span className="text-slate-100 font-medium">
+              <span className="text-slate-900 font-medium">
                 {treeData.totalNodes}
               </span>
             </div>
             {treeData.truncated && (
-              <div className="mt-1 inline-flex items-center rounded-full bg-amber-900/50 px-2 py-0.5 text-[10px] text-amber-300 border border-amber-700/70">
+              <div className="mt-1 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 border border-amber-200">
                 Tree truncated at {treeData.maxNodes} nodes
               </div>
             )}
@@ -196,14 +196,14 @@ const ReferralTree = () => {
 
       {treeLoading ? (
         <div className="flex justify-center py-10">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-700 border-t-sky-400" />
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" />
         </div>
       ) : treeError ? (
-        <div className="rounded-xl border border-red-700 bg-red-900/40 px-4 py-2 text-sm text-red-100">
+        <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800">
           {treeError}
         </div>
       ) : !rootNode ? (
-        <div className="py-8 text-center text-sm text-slate-400">
+        <div className="py-8 text-center text-sm text-slate-500">
           No referral tree data is available yet.
         </div>
       ) : (

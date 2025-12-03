@@ -101,7 +101,8 @@ const ServicePage = () => {
           contact: user?.phone || "9999999999",
         },
         theme: {
-          color: "#4f46e5",
+          // sky highlight
+          color: "#0ea5e9", // Tailwind sky-500
         },
         handler: async function (response) {
           try {
@@ -162,7 +163,7 @@ const ServicePage = () => {
 
         {loadingServices ? (
           <div className="flex justify-center py-16">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-300 border-t-slate-800" />
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" />
           </div>
         ) : services.length === 0 ? (
           <div className="py-16 text-center text-slate-500">
@@ -186,7 +187,8 @@ const ServicePage = () => {
                   )}
 
                   <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-700">
-                    <span className="inline-flex items-center rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+                    {/* primary price chip with sky highlight */}
+                    <span className="inline-flex items-center rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
                       ₹ {service.price}
                     </span>
                     <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
@@ -201,7 +203,7 @@ const ServicePage = () => {
                 <button
                   onClick={() => handlePurchase(service)}
                   disabled={paymentLoadingId === service._id}
-                  className="mt-6 inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-400"
+                  className="mt-6 inline-flex items-center justify-center rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-sky-300"
                 >
                   {paymentLoadingId === service._id
                     ? "Processing..."

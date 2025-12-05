@@ -7,6 +7,7 @@ import userRoutes from "./routes/userRoutes.js";
 import serviceRoutes from "./routes/serviceRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import referralRoutes from "./routes/referralRoutes.js";
+import settingsRoutes from "./routes/universalSettingsRoutes.js";
 import checkRoutes from "./routes/checkRoutes.js";
 
 
@@ -30,6 +31,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/service", serviceRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/referrals", referralRoutes);
+app.use("/api/settings", settingsRoutes);
 app.use("/api/checks", checkRoutes);
 
 

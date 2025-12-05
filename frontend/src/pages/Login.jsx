@@ -98,6 +98,15 @@ function LoginPage() {
 
         {/* Footer */}
         <div className="mt-6 flex items-center justify-between text-sm text-slate-500">
+          <span>Forgot password?</span>
+          <Link
+            to="/forgot-password"
+            className="font-medium text-sky-600 hover:text-sky-700 hover:underline"
+          >
+            Click here
+          </Link>
+        </div>
+        <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
           <span>Don&apos;t have an account?</span>
           <Link
             to="/signup"

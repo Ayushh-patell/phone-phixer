@@ -1,16 +1,16 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import crypto from "crypto";
 import express from "express";
 import Razorpay from "razorpay";
-import crypto from "crypto";
 
-import { protect } from "../middleware/authMiddleware.js";
-import Service from "../models/Service.js";
-import Purchase from "../models/Purchase.js";
-import User from "../models/User.js";
 import { updateReferralVolumes } from "../lib/referralVolumeLogic.js";
-import { placeInReferralTree } from "../lib/PlacementLogic.js";
+import { protect } from "../middleware/authMiddleware.js";
+import Purchase from "../models/Purchase.js";
+import Service from "../models/Service.js";
+import User from "../models/User.js";
+import { getSettingValue } from "./universalSettingsRoutes.js";
 
 const router = express.Router();
 
@@ -23,16 +23,21 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
+// Minimum Razorpay amount in INR (must match frontend logic)
+const RAZORPAY_MIN_AMOUNT = 1;
+
 /**
  * @route   POST /api/payments/create-order
  * @desc    Create Razorpay order for a service (Test mode)
  * @access  Private (logged-in user)
  *
- * Body: { serviceId }
+ * Body: { serviceId, amount?, useWallet?, walletToUse?, originalPrice? }
+ * - amount (INR) is the amount to charge via Razorpay.
+ *   If omitted, defaults to the full service.price.
  */
 router.post("/create-order", protect, async (req, res) => {
   try {
-    const { serviceId } = req.body;
+    const { serviceId, amount } = req.body || {};
 
     if (!serviceId) {
       return res.status(400).json({ message: "serviceId is required" });
@@ -43,8 +48,35 @@ router.post("/create-order", protect, async (req, res) => {
       return res.status(404).json({ message: "Service not found" });
     }
 
-    // Amount in paise; service.price assumed to be in INR (number)
-    const amountInPaise = Math.round(service.price * 100);
+    const servicePrice = Number(service.price || 0);
+    if (!servicePrice || servicePrice <= 0) {
+      return res.status(400).json({ message: "Invalid service price" });
+    }
+
+    // Use amount from body if provided, otherwise use full service price
+    const amountInRupees =
+      typeof amount !== "undefined" && amount !== null
+        ? Number(amount)
+        : servicePrice;
+
+    if (Number.isNaN(amountInRupees)) {
+      return res.status(400).json({ message: "Amount must be a number" });
+    }
+
+    // Validate: 1 <= amount <= servicePrice
+    if (amountInRupees < RAZORPAY_MIN_AMOUNT) {
+      return res.status(400).json({
+        message: `Amount must be at least ₹${RAZORPAY_MIN_AMOUNT}`,
+      });
+    }
+    if (amountInRupees > servicePrice) {
+      return res
+        .status(400)
+        .json({ message: "Amount cannot exceed service price" });
+    }
+
+    // Amount in paise
+    const amountInPaise = Math.round(amountInRupees * 100);
 
     // Make sure receipt is < 40 chars
     const shortServiceId = service._id.toString().slice(-8);
@@ -90,17 +122,15 @@ router.post("/create-order", protect, async (req, res) => {
 });
 
 /**
- * @route   POST /api/payments/verify
- * @desc    Verify Razorpay payment signature + create Purchase
- * @access  Private (logged-in user)
+ * POST /payments/verify
+ * Verifies Razorpay payment, records purchase, updates selfVolume
+ * and propagates UV up the referral tree with hotposition rules.
  *
- * Body:
- *  {
- *    razorpay_payment_id,
- *    razorpay_order_id,
- *    razorpay_signature,
- *    serviceId
- *  }
+ * Also supports partial wallet payment:
+ *  Body extra fields:
+ *    - useWallet?: boolean
+ *    - walletUsed?: number (INR) – amount to deduct from wallet AFTER payment
+ *    - originalPrice?: number (INR) – original service price (for reference/log)
  */
 router.post("/verify", protect, async (req, res) => {
   try {
@@ -109,7 +139,10 @@ router.post("/verify", protect, async (req, res) => {
       razorpay_order_id,
       razorpay_signature,
       serviceId,
-    } = req.body;
+      useWallet,
+      walletUsed,
+      originalPrice,
+    } = req.body || {};
 
     if (
       !razorpay_payment_id ||
@@ -143,46 +176,188 @@ router.post("/verify", protect, async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // 3. Create purchase record
+    const servicePrice = Number(service.price || 0);
+    if (!servicePrice || servicePrice <= 0) {
+      return res.status(400).json({ message: "Invalid service price" });
+    }
+
+    // 3. If partial wallet is used, validate wallet & remember how much to deduct
+    let walletToDeduct = 0;
+    if (useWallet && walletUsed) {
+      const walletUsedNum = Number(walletUsed);
+      if (Number.isNaN(walletUsedNum) || walletUsedNum < 0) {
+        return res
+          .status(400)
+          .json({ message: "walletUsed must be a non-negative number" });
+      }
+
+      // Check user actually has at least this much in wallet
+      if ((user.walletBalance || 0) < walletUsedNum) {
+        return res.status(400).json({
+          message:
+            "Insufficient wallet balance for the requested walletUsed amount",
+        });
+      }
+
+      walletToDeduct = walletUsedNum;
+    }
+
+    // NOTE: At this point Razorpay payment is confirmed as valid.
+    // We now treat the service as fully purchased.
+
+    // 4. Create purchase record
     const purchase = await Purchase.create({
       userId: user._id,
       serviceId: service._id,
-      amountPaid: service.price,
+      // Amount paid for the service (logical price). If you want, you can
+      // later add fields like walletUsed / razorpayPaid in the schema.
+      amountPaid: servicePrice,
       uvEarned: service.uv,
       status: "completed",
       razorpayOrderId: razorpay_order_id,
       razorpayPaymentId: razorpay_payment_id,
     });
 
-    // 4. Update user's selfVolume
-    user.selfVolume += service.uv;
+    // 5. If using wallet partially, deduct wallet after successful payment
+    if (walletToDeduct > 0) {
+      user.walletBalance = Math.max(
+        0,
+        (user.walletBalance || 0) - walletToDeduct
+      );
+    }
 
+    // 6. Update user's selfVolume
+    const uv = service.uv || 0;
+    user.selfVolume = (user.selfVolume || 0) + uv;
 
-    // TODO USE DYNAMIC
-    if((user.selfVolume >= 5) && !user.referralActive) {
-      if (user.referredBy) {
-        const referrer = await User.findById(user.referredBy);
-        if (referrer) {
-          await placeInReferralTree(user, referrer);
-        }
-      }
+    const ACTIVATION_THRESHOLD = await getSettingValue(
+      "referralActive_limit",
+      5
+    );
 
-    user.referralActive = true;   
-   }
-   // 2) Update left/right volumes of uplines recursively
-   else if(user.referralActive) {
-     await updateReferralVolumes(user._id, service.uv);
-   }
+    // If user crosses threshold and is not yet active:
+    if (user.selfVolume >= ACTIVATION_THRESHOLD && !user.referralActive) {
+      user.referralActive = true;
+      user.at_hotposition = false; // they leave hotposition once activated
+    }
+
     await user.save();
 
-    
+    // 7. Update upline volumes based on referral tree
+    //    - If user is placed (has referredBy), UV will flow up.
+    //    - If not placed, updateReferralVolumes will effectively do nothing.
+    if (user.referredBy) {
+      await updateReferralVolumes(user._id, uv);
+    }
 
     return res.json({
       message: "Payment verified & purchase created",
       purchase,
+      walletDeducted: walletToDeduct,
+      originalPrice: originalPrice ?? servicePrice,
     });
   } catch (err) {
     console.error("Error verifying Razorpay payment:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * @route   POST /api/payments/pay-with-wallet
+ * @desc    Purchase a service using wallet balance only (no Razorpay)
+ * @access  Private
+ *
+ * Body: { serviceId, amount }
+ *  - amount: expected to match service.price (INR)
+ */
+router.post("/pay-with-wallet", protect, async (req, res) => {
+  try {
+    const { serviceId, amount } = req.body || {};
+
+    if (!serviceId || typeof amount === "undefined") {
+      return res
+        .status(400)
+        .json({ message: "serviceId and amount are required" });
+    }
+
+    const service = await Service.findById(serviceId);
+    if (!service || !service.isActive) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const servicePrice = Number(service.price || 0);
+    if (!servicePrice || servicePrice <= 0) {
+      return res.status(400).json({ message: "Invalid service price" });
+    }
+
+    const amountNum = Number(amount);
+    if (Number.isNaN(amountNum) || amountNum <= 0) {
+      return res
+        .status(400)
+        .json({ message: "amount must be a positive number" });
+    }
+
+    // For now require exact match: wallet purchase must be for full service price
+    if (amountNum !== servicePrice) {
+      return res.status(400).json({
+        message:
+          "Wallet payment amount must match the service price for full wallet purchase",
+      });
+    }
+
+    // Check wallet balance
+    if ((user.walletBalance || 0) < amountNum) {
+      return res.status(400).json({
+        message: "Insufficient wallet balance",
+      });
+    }
+
+    // Deduct from wallet
+    user.walletBalance = Math.max(0, (user.walletBalance || 0) - amountNum);
+
+    // Create purchase record (wallet-only)
+    const purchase = await Purchase.create({
+      userId: user._id,
+      serviceId: service._id,
+      amountPaid: servicePrice,
+      uvEarned: service.uv,
+      status: "completed",
+      // You can add: paymentMethod: "wallet" in schema later if needed
+    });
+
+    // Update UV
+    const uv = service.uv || 0;
+    user.selfVolume = (user.selfVolume || 0) + uv;
+
+    const ACTIVATION_THRESHOLD = await getSettingValue(
+      "referralActive_limit",
+      5
+    );
+
+    if (user.selfVolume >= ACTIVATION_THRESHOLD && !user.referralActive) {
+      user.referralActive = true;
+      user.at_hotposition = false;
+    }
+
+    await user.save();
+
+    // Propagate volumes upwards if placed
+    if (user.referredBy) {
+      await updateReferralVolumes(user._id, uv);
+    }
+
+    return res.json({
+      message: "Service purchased using wallet balance",
+      purchase,
+      walletRemaining: user.walletBalance,
+    });
+  } catch (err) {
+    console.error("Error in wallet payment:", err);
     return res.status(500).json({ message: "Server error" });
   }
 });

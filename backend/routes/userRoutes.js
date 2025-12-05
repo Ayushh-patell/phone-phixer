@@ -7,6 +7,7 @@ import crypto from 'crypto'
 import { protect } from "../middleware/authMiddleware.js";
 import jwt from "jsonwebtoken"
 import { placeInReferralTree } from "../lib/PlacementLogic.js";
+import { getStarLevels } from "../lib/starLogic.js";
 
 
 
@@ -248,10 +249,14 @@ router.post("/verify-token", async (req, res) => {
       return res.status(401).json({ valid: false, message: "Invalid token" });
     }
 
-    const user = await User.findById(decoded.id).select("_id name email admin verified");
+    const user = await User.findById(decoded.id).select("_id name email admin verified, star");
     if (!user) {
       return res.status(404).json({ valid: false, message: "User not found" });
     }
+    const levels = await getStarLevels()
+
+    const userStars = levels.find((item) => item.lvl === user.star);
+
 
     return res.json({
       valid: true,
@@ -261,6 +266,7 @@ router.post("/verify-token", async (req, res) => {
         name: user.name,
         email: user.email,
         admin: user.admin ?? false,
+        star:userStars,
         verified: user.verified,
       },
       tokenPayload: {
@@ -422,8 +428,9 @@ router.get("/me", protect, async (req, res) => {
 
     const user = await User.findById(userId)
       .populate("referredBy", "name email referralCode")
+      .populate('referralUsed', "name email referralCode")
       .select(
-        "name email role selfVolume leftVolume rightVolume walletBalance totalEarnings referralCode referralActive createdAt referredBy"
+        "name email role selfVolume leftVolume rightVolume walletBalance totalEarnings referralCode referralActive createdAt referredBy star referralUsed at_hotposition"
       );
 
     if (!user) {
@@ -452,8 +459,17 @@ router.get("/me", protect, async (req, res) => {
             referralCode: user.referredBy.referralCode || null,
           }
         : null,
-      // you can compute / add availableChecks here if needed
       availableChecks: user.availableChecks || 0, // optional, if you add to schema or compute
+      star: user.star || 1,
+      referralUsed:user.referralUsed
+        ? {
+            id: user.referralUsed._id,
+            name: user.referralUsed.name,
+            email: user.referralUsed.email,
+            referralCode: user.referralUsed.referralCode || null,
+          }
+        : null, 
+      at_hotposition:user.at_hotposition || false
     });
   } catch (err) {
     console.error("Error fetching user info:", err);
@@ -471,39 +487,145 @@ router.post("/use-code", protect, async (req, res) => {
     }
 
     const user = await User.findById(req.user.id);
-    if (!user) return res.status(400).json({ message: "User not found" });
-
-    if (user.referredBy) {
-      return res.status(400).json({ message: "Referral already applied" });
-    }
-    
-    if (user.referralCode === referralCode) {
-      return res.status(400).json({ message: "Cannot use your own Referral" });
+    if (!user) {
+      return res.status(400).json({ message: "User not found" });
     }
 
+    // Can't use own code
+    if (user.referralCode && user.referralCode === referralCode) {
+      return res
+        .status(400)
+        .json({ message: "Cannot use your own referral code" });
+    }
+
+    // Find the referrer by referralCode
     const referrer = await User.findOne({ referralCode });
     if (!referrer) {
       return res.status(400).json({ message: "Invalid referral code" });
     }
 
-    if (user.referralActive) {
-      await placeInReferralTree(user, referrer);
+    const previousSponsorId = user.referralUsed;
 
+    // If user already had a sponsor and it's the same as the new one
+    if (
+      previousSponsorId &&
+      previousSponsorId.toString() === referrer._id.toString()
+    ) {
+      // Just ensure they are in the referrer's request list (no duplicates)
+      const alreadyRequested = (referrer.referralRequest || []).some(
+        (id) => id.toString() === user._id.toString()
+      );
+
+      if (!alreadyRequested) {
+        referrer.referralRequest.push(user._id);
+        await referrer.save();
+      }
+
+      return res.json({
+        message: "Referral code accepted. Sponsor unchanged.",
+      });
     }
 
-    user.referredBy = referrer._id;
+    // If user had a previous sponsor, remove them from that sponsor's request list
+    if (previousSponsorId) {
+      const previousSponsor = await User.findById(previousSponsorId);
+
+      if (previousSponsor) {
+        previousSponsor.referralRequest =
+          (previousSponsor.referralRequest || []).filter(
+            (id) => id.toString() !== user._id.toString()
+          );
+        await previousSponsor.save();
+      }
+    }
+
+    // Set new sponsor
+    user.referralUsed = referrer._id;
+    // NOTE: referredBy stays null here, will be set when placed in the tree
     await user.save();
 
-    res.json({ message: "Referral applied successfully" });
+    // Add this user into the new referrer's request queue (if not already there)
+    const alreadyRequestedNew = (referrer.referralRequest || []).some(
+      (id) => id.toString() === user._id.toString()
+    );
 
+    if (!alreadyRequestedNew) {
+      referrer.referralRequest.push(user._id);
+      await referrer.save();
+    }
+
+    return res.json({
+      message: previousSponsorId
+        ? "Referral code accepted. Sponsor updated."
+        : "Referral code accepted. User added to sponsor's placement queue.",
+    });
   } catch (err) {
-    res.status(500).json({ message: "Server error" });
+    console.error("Error in /use-code:", err);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
 
-// ====== JOIN REFERRAL PROGRAM ======
+// GET /users/requests
+// Returns info about users currently in the logged-in user's referralRequest list
+router.get("/requests", protect, async (req, res) => {
+  try {
+    const actingUserId = req.user.id;
+
+    // Fetch the current user with their referralRequest list
+    const actingUser = await User.findById(actingUserId).select("referralRequest");
+
+    if (!actingUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const requestIds = actingUser.referralRequest || [];
+
+    if (requestIds.length === 0) {
+      return res.json({
+        total: 0,
+        requests: [],
+      });
+    }
+
+    // Fetch all users in referralRequest
+    const pendingUsers = await User.find({
+      _id: { $in: requestIds },
+    }).select("_id name email selfVolume referralActive createdAt");
+
+    // Preserve the same order as in referralRequest array
+    const mapById = new Map(
+      pendingUsers.map((u) => [u._id.toString(), u])
+    );
+
+    const orderedUsers = requestIds
+      .map((id) => mapById.get(id.toString()))
+      .filter(Boolean);
+
+    return res.json({
+      total: orderedUsers.length,
+      requests: orderedUsers.map((u) => ({
+        id: u._id,
+        name: u.name,
+        email: u.email,
+        selfVolume: u.selfVolume || 0,
+        referralActive: !!u.referralActive,
+        createdAt: u.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error("Error fetching referral requests:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+
+// ====== JOIN REFERRAL PROGRAM (DEPRECATED) ======
 router.post("/join-referral-program", protect, async (req, res) => {
+  return res.status(410).json({
+    message:
+      "This endpoint is deprecated. Referral program participation and placement are now handled via the new placement flow.",
+  });
   try {
     const user = await User.findById(req.user.id);
 

@@ -8,11 +8,29 @@ import {
   calculateTreeChecks,
   CHECK_PAYOUT_AMOUNT,
 } from "../lib/checkLogic.js";
+import { runWeeklyCheckPayouts } from "../cron/weeklyCheckPayoutJob.js";
 
 const router = express.Router();
 
+
+
+
+router.post("/run-weekly", protect, async (req, res) => {
+  try {
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({ message: "Admins only" });
+    }
+
+    await runWeeklyCheckPayouts();
+    return res.json({ message: "Weekly payout job executed." });
+  } catch (err) {
+    console.error("Error running weekly payout job manually:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 /**
- * @route   POST /api/checks/redeem
+ * @route   POST /api/checks/redeem (DEPRECATED)
  * @desc    Redeem available checks and credit wallet
  * @access  Private
  */

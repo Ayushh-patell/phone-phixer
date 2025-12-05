@@ -1,20 +1,26 @@
-import axios from 'axios';
-import React from 'react'
-import { useEffect } from 'react';
-import { useState } from 'react';
+import axios from "axios";
+import React, { useEffect, useState } from "react";
 
 // TEMP: hardcoded JWT for testing (fallback)
 const TEST_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5MjVhYWFjMjY4N2UwY2I3N2E0ZjdkZCIsImVtYWlsIjoiYXl1c2gucGF0ZWwuY29kZUBnbWFpbC5jb20iLCJhZG1pbiI6ZmFsc2UsImlhdCI6MTc2NDMyNjQ3OCwiZXhwIjoxNzY0OTMxMjc4fQ.AaRuR27ugUpD3DOhRM54-OtEaSONxUWzezrsCWOYW9A";
 
-
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
+
+// Razorpay minimum chargeable amount (in INR, not paise)
+const RAZORPAY_MIN_AMOUNT = 1;
 
 // ========== SERVICES COMPONENT ==========
 const ServicesSection = () => {
   const [services, setServices] = useState([]);
   const [loadingServices, setLoadingServices] = useState(false);
+
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [walletLoading, setWalletLoading] = useState(false);
+
+  const [useWallet, setUseWallet] = useState(true);
+
   const [error, setError] = useState("");
   const [paymentLoadingId, setPaymentLoadingId] = useState(null);
 
@@ -45,8 +51,23 @@ const ServicesSection = () => {
     }
   };
 
+  // Fetch wallet balance from /users/me
+  const fetchWalletBalance = async () => {
+    try {
+      setWalletLoading(true);
+      const res = await axios.get(`${API_BASE_URL}/users/me`, authConfig());
+      const user = res.data || {};
+      setWalletBalance(Number(user.walletBalance || 0));
+    } catch (err) {
+      console.error("Failed to fetch wallet balance:", err);
+    } finally {
+      setWalletLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchServices();
+    fetchWalletBalance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -65,76 +86,182 @@ const ServicesSection = () => {
       document.body.appendChild(script);
     });
 
+  /**
+   * Wrapper to start Razorpay payment.
+   * - extraOrderPayload is sent to /payments/create-order
+   * - extraVerifyPayload is sent to /payments/verify
+   */
+  const startRazorpayPayment = async ({
+    service,
+    payAmountInRupees,
+    extraOrderPayload = {},
+    extraVerifyPayload = {},
+  }) => {
+    const scriptLoaded = await loadRazorpayScript();
+    if (!scriptLoaded) {
+      setError("Razorpay SDK failed to load. Check your connection.");
+      return;
+    }
+
+    // 1. Ask backend to create Razorpay order for the given amount
+    const orderRes = await axios.post(
+      `${API_BASE_URL}/payments/create-order`,
+      {
+        amount: payAmountInRupees, // backend should multiply by 100
+        serviceId: service._id,
+        ...extraOrderPayload,
+      },
+      authConfig()
+    );
+
+    const { orderId, amount, currency, user } = orderRes.data;
+
+    const options = {
+      key: RAZORPAY_KEY_ID,
+      amount, // already in paise (from backend)
+      currency: currency || "INR",
+      name: "phone-phixer",
+      description: service.name,
+      order_id: orderId,
+      prefill: {
+        name: user?.name || "Test User",
+        email: user?.email || "test@example.com",
+        contact: user?.phone || "9999999999",
+      },
+      theme: {
+        color: "#38bdf8",
+      },
+      handler: async function (response) {
+        try {
+          // 2. Tell backend to verify payment + create Purchase record
+          //    Also send walletUsed so backend can deduct wallet AFTER success.
+          await axios.post(
+            `${API_BASE_URL}/payments/verify`,
+            {
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+              serviceId: service._id,
+              ...extraVerifyPayload,
+            },
+            authConfig()
+          );
+
+          alert("Payment successful (test mode).");
+          // After successful payment, wallet may have changed (partial wallet use)
+          fetchWalletBalance();
+        } catch (err) {
+          console.error(err);
+          alert(
+            err.response?.data?.message ||
+              "Payment captured but verification failed on server."
+          );
+        }
+      },
+      modal: {
+        ondismiss: function () {
+          console.log("Razorpay popup closed.");
+        },
+      },
+    };
+
+    const rzp = new window.Razorpay(options);
+    rzp.open();
+  };
+
   const handlePurchase = async (service) => {
     try {
       setPaymentLoadingId(service._id);
       setError("");
 
-      const scriptLoaded = await loadRazorpayScript();
-      if (!scriptLoaded) {
-        setError("Razorpay SDK failed to load. Check your connection.");
+      const price = Number(service.price || 0); // in INR
+
+      if (price <= 0) {
+        setError("Invalid service price.");
         return;
       }
 
-      // 1. Ask backend to create Razorpay order
-      const orderRes = await axios.post(
-        `${API_BASE_URL}/payments/create-order`,
-        {
-          amount: service.price, // backend should multiply by 100
-          serviceId: service._id,
-        },
-        authConfig()
+      if (!useWallet) {
+        // Old behavior: full amount via Razorpay
+        await startRazorpayPayment({
+          service,
+          payAmountInRupees: price,
+        });
+        return;
+      }
+
+      // Use wallet balance if enabled
+      const currentWallet = Number(walletBalance || 0);
+
+      // 1) Wallet can cover full price -> wallet-only payment
+      if (currentWallet >= price) {
+        try {
+          // Placeholder API that you'll implement later
+          const res = await axios.post(
+            `${API_BASE_URL}/payments/pay-with-wallet`,
+            {
+              serviceId: service._id,
+              amount: price,
+            },
+            authConfig()
+          );
+
+          alert(
+            res.data?.message ||
+              "Service purchased using wallet balance successfully."
+          );
+
+          // Refresh wallet balance after wallet-only payment
+          fetchWalletBalance();
+        } catch (err) {
+          console.error(err);
+          setError(
+            err.response?.data?.message ||
+              "Failed to complete wallet payment. Please try again."
+          );
+        }
+        return;
+      }
+
+      // 2) Partial wallet + Razorpay
+      //
+      // We only use wallet until remaining amount is at least RAZORPAY_MIN_AMOUNT.
+      // Example: price = 100, min = 1
+      // - if wallet = 30  -> walletToUse = 30, remaining = 70
+      // - if wallet = 99  -> walletToUse = 99, remaining = 1
+      // - if wallet = 150 -> FULL wallet branch above
+      const maxWalletUsableForPartial = Math.max(
+        0,
+        price - RAZORPAY_MIN_AMOUNT
       );
+      const walletToUse = Math.min(currentWallet, maxWalletUsableForPartial);
+      const remainingPrice = price - walletToUse; // guaranteed >= min
 
-      const { orderId, amount, currency, user } = orderRes.data;
+      if (remainingPrice < RAZORPAY_MIN_AMOUNT) {
+        // Should not happen due to the math, but guard anyway
+        setError(
+          "Remaining amount is below Razorpay's minimum. Please adjust the payment."
+        );
+        return;
+      }
 
-      const options = {
-        key: RAZORPAY_KEY_ID,
-        amount, // already in paise
-        currency: currency || "INR",
-        name: "phone-phixer",
-        description: service.name,
-        order_id: orderId,
-        prefill: {
-          name: user?.name || "Test User",
-          email: user?.email || "test@example.com",
-          contact: user?.phone || "9999999999",
+      // Start Razorpay only for the remaining price.
+      // IMPORTANT: wallet is NOT deducted on the client.
+      // We send walletUsed to backend verify so it can deduct AFTER payment is done.
+      await startRazorpayPayment({
+        service,
+        payAmountInRupees: remainingPrice,
+        extraOrderPayload: {
+          useWallet: true,
+          walletToUse,      // how much we *intend* to use from wallet
+          originalPrice: price,
         },
-        theme: {
-          color: "#38bdf8",
+        extraVerifyPayload: {
+          useWallet: true,
+          walletUsed: walletToUse, // backend: deduct this after successful Razorpay payment
+          originalPrice: price,
         },
-        handler: async function (response) {
-          try {
-            // 2. Tell backend to verify payment + create Purchase record
-            await axios.post(
-              `${API_BASE_URL}/payments/verify`,
-              {
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_signature: response.razorpay_signature,
-                serviceId: service._id,
-              },
-              authConfig()
-            );
-
-            alert("Payment successful (test mode).");
-          } catch (err) {
-            console.error(err);
-            alert(
-              err.response?.data?.message ||
-                "Payment captured but verification failed on server."
-            );
-          }
-        },
-        modal: {
-          ondismiss: function () {
-            console.log("Razorpay popup closed.");
-          },
-        },
-      };
-
-      const rzp = new window.Razorpay(options);
-      rzp.open();
+      });
     } catch (err) {
       console.error(err);
       setError(
@@ -148,13 +275,37 @@ const ServicesSection = () => {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-          Services
-        </h1>
-        <p className="text-sm text-slate-400">
-          Choose a service and complete the payment with Razorpay (test mode).
-        </p>
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
+            Services
+          </h1>
+          <p className="text-sm text-slate-400">
+            Choose a service and pay using your wallet balance and/or Razorpay.
+          </p>
+        </div>
+
+        <div className="flex flex-col items-start sm:items-end gap-1">
+          <div className="inline-flex items-center rounded-full bg-slate-900/60 border border-slate-700 px-3 py-1 text-xs text-slate-100">
+            <span className="mr-1 text-slate-50">Wallet balance:</span>
+            {walletLoading ? (
+              <span className="italic text-slate-300">Loading…</span>
+            ) : (
+              <span className="font-semibold">
+                ₹ {walletBalance.toFixed(2)}
+              </span>
+            )}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-900 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useWallet}
+              onChange={(e) => setUseWallet(e.target.checked)}
+              className="h-3 w-3 rounded border-slate-500 bg-slate-900 text-sky-400"
+            />
+            <span >Use wallet balance for purchases</span>
+          </label>
+        </div>
       </div>
 
       {error && (
@@ -199,6 +350,14 @@ const ServicesSection = () => {
                     Valid for {service.validityDays} days
                   </span>
                 </div>
+
+                {useWallet && (
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Wallet is applied first. For partial payments, wallet is
+                    used until at least ₹{RAZORPAY_MIN_AMOUNT.toFixed(2)} is left
+                    for Razorpay.
+                  </p>
+                )}
               </div>
 
               <button
@@ -208,7 +367,9 @@ const ServicesSection = () => {
               >
                 {paymentLoadingId === service._id
                   ? "Processing..."
-                  : "Buy with Razorpay (Test)"}
+                  : useWallet
+                  ? "Buy "
+                  : "Buy"}
               </button>
             </div>
           ))}
@@ -216,6 +377,6 @@ const ServicesSection = () => {
       )}
     </div>
   );
-}
+};
 
-export default ServicesSection; 
+export default ServicesSection;

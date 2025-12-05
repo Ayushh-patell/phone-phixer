@@ -4,7 +4,6 @@ import axios from "axios";
 import { FiCopy, FiCheck } from "react-icons/fi";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-const REFERRAL_UV_THRESHOLD = 5;
 
 const calculateSelfCheck = (selfVol) => Math.floor(selfVol / 4);
 
@@ -27,13 +26,24 @@ const TopMetrics = () => {
   const [referralCodeInput, setReferralCodeInput] = useState("");
   const [copied, setCopied] = useState(false);
 
+  // referralActive_limit from universal settings
+  const [referralUvThreshold, setReferralUvThreshold] = useState(5);
+
   const [userInfo, setUserInfo] = useState({
+    name: "",
+    email: "",
+    role: "user",
     selfVolume: 0,
-    availableChecks: 0,
     totalEarnings: 0,
-    referredBy: null,
+    walletBalance: 0,
+    leftVolume: 0,
+    rightVolume: 0,
+    referredBy: null, // placement parent in tree
+    referralUsed: null, // sponsor (whose code was used)
     referralCode: null,
     referralActive: false,
+    star: 1,
+    at_hotposition: false,
   });
 
   const fetchUserInfo = async () => {
@@ -57,14 +67,20 @@ const TopMetrics = () => {
       const user = res.data || {};
 
       setUserInfo({
+        name: user.name || "",
+        email: user.email || "",
+        role: user.role || "user",
         selfVolume: user.selfVolume ?? 0,
         totalEarnings: user.totalEarnings ?? 0,
         walletBalance: user.walletBalance ?? 0,
         rightVolume: user.rightVolume ?? 0,
         leftVolume: user.leftVolume ?? 0,
-        referredBy: user.referredBy || null,
+        referredBy: user.referredBy || null, // placement parent
+        referralUsed: user.referralUsed || null, // sponsor
         referralCode: user.referralCode || null,
         referralActive: user.referralActive || false,
+        star: user.star ?? 1,
+        at_hotposition: user.at_hotposition || false,
       });
     } catch (err) {
       console.error(err);
@@ -78,6 +94,27 @@ const TopMetrics = () => {
 
   useEffect(() => {
     fetchUserInfo();
+  }, []);
+
+  // Fetch referralActive_limit from universal settings
+  useEffect(() => {
+    const fetchReferralThreshold = async () => {
+      try {
+        const res = await axios.get(
+          `${API_BASE_URL}/settings/referralActive_limit`
+        );
+        const value = res.data?.value;
+        const numeric = Number(value);
+        if (!Number.isNaN(numeric) && numeric > 0) {
+          setReferralUvThreshold(numeric);
+        }
+      } catch (err) {
+        console.error("Failed to fetch referralActive_limit:", err);
+        // keep default 5 if this fails
+      }
+    };
+
+    fetchReferralThreshold();
   }, []);
 
   const handleApplyReferral = async (e) => {
@@ -100,7 +137,7 @@ const TopMetrics = () => {
         return;
       }
 
-      await axios.post(
+      const res = await axios.post(
         `${API_BASE_URL}/users/use-code`,
         { referralCode: trimmed },
         {
@@ -110,9 +147,11 @@ const TopMetrics = () => {
         }
       );
 
-      setApplySuccess("Referral applied successfully.");
+      const message =
+        res.data?.message || "Referral code applied successfully.";
+      setApplySuccess(message);
       setReferralCodeInput("");
-      await fetchUserInfo(); // refresh referredBy
+      await fetchUserInfo(); // refresh referralUsed / referredBy
     } catch (err) {
       console.error(err);
       const message =
@@ -198,99 +237,105 @@ const TopMetrics = () => {
     referredBy,
     referralCode,
     referralActive,
+    referralUsed,
   } = userInfo;
 
-  const canJoinProgram = selfVolume >= REFERRAL_UV_THRESHOLD && !referralActive;
+  const canJoinProgram =
+    selfVolume >= referralUvThreshold && !referralActive;
 
   const checks =
     calculateSelfCheck(selfVolume) + calculateTreeChecks(leftVolume, rightVolume);
+
+  const sponsor = referralUsed || null; // sponsor = user whose code we used
 
   return (
     <>
       {/* Metrics cards */}
       <section className="grid gap-4 md:grid-cols-3 mb-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-500">
+            <span className="text-xs uppercase tracking-wide text-slate-50">
               Self UV
             </span>
           </div>
           <div className="text-2xl font-semibold text-slate-900">
             {selfVolume}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-50">
             Your personal volume on phone-phixer.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-500">
+            <span className="text-xs uppercase tracking-wide text-slate-50">
               Available Checks
             </span>
           </div>
-          <div className="text-2xl font-semibold text-slate-900">{checks}</div>
-          <p className="mt-1 text-xs text-slate-500">
+          <div className="text-2xl font-semibold text-slate-900">
+            {checks}
+          </div>
+          <p className="mt-1 text-xs text-slate-50">
             Checks you can currently redeem or request.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-500">
+            <span className="text-xs uppercase tracking-wide text-slate-50">
               Total Earnings
             </span>
           </div>
           <div className="text-2xl font-semibold text-slate-900">
-            ${Number(totalEarnings || 0).toFixed(2)}
+            &#8377;{Number(totalEarnings || 0).toFixed(2)}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-50">
             Lifetime earnings from your repairs and referrals.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-500">
+            <span className="text-xs uppercase tracking-wide text-slate-50">
               Left UV
             </span>
           </div>
           <div className="text-2xl font-semibold text-slate-900">
             {Number(leftVolume || 0).toFixed(0)}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-50">
             Current UV on the left side of your tree.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-500">
+            <span className="text-xs uppercase tracking-wide text-slate-50">
               Right UV
             </span>
           </div>
           <div className="text-2xl font-semibold text-slate-900">
             {Number(rightVolume || 0).toFixed(0)}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-50">
             Current UV on the right side of your tree.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-500">
+            <span className="text-xs uppercase tracking-wide text-slate-50">
               Wallet Balance
             </span>
           </div>
           <div className="text-2xl font-semibold text-slate-900">
-            ${Number(walletBalance || 0).toFixed(2)}
+            &#8377;{Number(walletBalance || 0).toFixed(2)}
           </div>
-          <p className="mt-1 text-xs text-slate-500">Current wallet balance.</p>
+          <p className="mt-1 text-xs text-slate-50">Current wallet balance.</p>
         </div>
       </section>
 
-      {/* Referral program + referral code + referred by */}
+      {/* Referral program + sponsor / placement info */}
       <section className="mb-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4">
           {/* Referral program / Your referral code */}
@@ -332,14 +377,14 @@ const TopMetrics = () => {
                 <p className="text-xs text-slate-500">
                   Once you have{" "}
                   <span className="font-semibold text-slate-900">
-                    {REFERRAL_UV_THRESHOLD} UV
+                    {referralUvThreshold} UV
                   </span>{" "}
                   you can join the referral program and get your own code.
                 </p>
                 <p className="text-[11px] text-slate-500">
                   Current UV:{" "}
                   <span className="text-slate-900 font-medium">
-                    {selfVolume} / {REFERRAL_UV_THRESHOLD}
+                    {selfVolume} / {referralUvThreshold}
                   </span>
                 </p>
 
@@ -366,65 +411,92 @@ const TopMetrics = () => {
 
           <div className="h-px bg-slate-200" />
 
-          {/* Referred by / Apply referral */}
-          {referredBy ? (
-            <div className="flex flex-col gap-1">
-              <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">
-                Referred by
+          {/* Sponsor / placement info + referral input (only before placement) */}
+          <div className="space-y-3">
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">
+              Referral sponsor & placement
+            </div>
+
+            {/* Sponsor info (referralUsed) */}
+            {sponsor ? (
+              <div className="flex flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-full bg-slate-50 px-3 py-1 text-xs text-slate-700 border border-slate-200">
+                    {sponsor.name || "User"}
+                  </span>
+                  {sponsor.email && (
+                    <span className="text-xs text-slate-500">
+                      {sponsor.email}
+                    </span>
+                  )}
+                  {sponsor.referralCode && (
+                    <span className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700 border border-sky-200">
+                      Code: {sponsor.referralCode}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center rounded-full bg-slate-50 px-3 py-1 text-xs text-slate-700 border border-slate-200">
+            ) : (
+              <p className="text-[11px] text-slate-500">
+                You haven&apos;t used a referral code yet. You can link a referrer
+                before you are placed in the tree.
+              </p>
+            )}
+
+            {/* Placement parent info (referredBy) */}
+            {referredBy && (
+              <div className="text-[11px] text-slate-500">
+                Referred By:{" "}
+                <span className="font-medium text-slate-800">
                   {referredBy.name || "User"}
                 </span>
-                {referredBy.email && (
-                  <span className="text-xs text-slate-500">
-                    {referredBy.email}
-                  </span>
-                )}
-                {referredBy.referralCode && (
-                  <span className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700 border border-sky-200">
-                    Code: {referredBy.referralCode}
-                  </span>
-                )}
+
               </div>
-              <p className="mt-2 text-xs text-emerald-600">
-                Referral already applied to this account.
-              </p>
-            </div>
-          ) : (
-            <form
-              onSubmit={handleApplyReferral}
-              className="flex flex-col gap-2 sm:flex-row sm:items-end"
-            >
-              <div className="flex-1">
-                <label className="block text-xs uppercase tracking-wide text-slate-500 mb-1">
-                  Referral code
-                </label>
-                <input
-                  type="text"
-                  value={referralCodeInput}
-                  onChange={(e) => setReferralCodeInput(e.target.value)}
-                  placeholder="Enter referral code"
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-                />
-                {applyError && (
-                  <p className="mt-1 text-[11px] text-red-500">{applyError}</p>
-                )}
-                {applySuccess && (
-                  <p className="mt-1 text-[11px] text-emerald-600">
-                    {applySuccess}
-                  </p>
-                )}
-              </div>
-              <button
-                type="submit"
-                disabled={applyLoading}
-                className="mt-2 sm:mt-0 inline-flex items-center justify-center rounded-lg bg-sky-500 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-sky-300"
+            )}
+
+            {/* Apply / change referral code
+                Only allowed if NOT yet placed in tree (no referredBy) */}
+            {!referredBy && (
+              <form
+                onSubmit={handleApplyReferral}
+                className="flex flex-col gap-2 sm:flex-row sm:items-end"
               >
-                {applyLoading ? "Applying..." : "Apply referral"}
-              </button>
-            </form>
-          )}
+                <div className="flex-1">
+                  <label className="block text-xs uppercase tracking-wide text-slate-500 mb-1">
+                    {sponsor ? "Use a different referral code" : "Referral code"}
+                  </label>
+                  <input
+                    type="text"
+                    value={referralCodeInput}
+                    onChange={(e) => setReferralCodeInput(e.target.value)}
+                    placeholder="Enter referral code"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  />
+                  {applyError && (
+                    <p className="mt-1 text-[11px] text-red-500">
+                      {applyError}
+                    </p>
+                  )}
+                  {applySuccess && (
+                    <p className="mt-1 text-[11px] text-emerald-600">
+                      {applySuccess}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={applyLoading}
+                  className="mt-2 sm:mt-0 inline-flex items-center justify-center rounded-lg bg-sky-500 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-sky-300"
+                >
+                  {applyLoading
+                    ? "Applying..."
+                    : sponsor
+                    ? "Change Referrer"
+                    : "Apply referral"}
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </section>
     </>

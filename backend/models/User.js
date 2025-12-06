@@ -30,7 +30,7 @@ const UserSchema = new mongoose.Schema(
     },
 
     // Referral system
-    referralCode: { type: String, unique: true }, // this user's code
+    referralCode: { type: String}, // this user's code
 
     // Binary-tree parent (placement parent)
     referredBy: {
@@ -89,6 +89,16 @@ const UserSchema = new mongoose.Schema(
     createdAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
+);
+
+UserSchema.index(
+  { referralCode: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      referralCode: { $exists: true, $ne: null },
+    },
+  }
 );
 
 export default mongoose.model("User", UserSchema);

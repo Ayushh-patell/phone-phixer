@@ -10,6 +10,11 @@ function SignupPage() {
     email: "",
     password: "",
     confirmPassword: "",
+    phone: "",
+    address: "",
+    deviceBrand: "",
+    deviceModel: "",
+    deviceImei: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -30,18 +35,24 @@ function SignupPage() {
 
     setLoading(true);
     try {
-      const data = await registerUser({
+      const payload = {
         name: form.name.trim(),
         email: form.email.trim(),
         password: form.password,
-      });
+        phone: form.phone.trim() || undefined,
+        address: form.address.trim() || undefined,
+        deviceBrand: form.deviceBrand.trim() || undefined,
+        deviceModel: form.deviceModel.trim() || undefined,
+        deviceImei: form.deviceImei.trim() || undefined,
+      };
 
-      // backend responds with userId
+      const data = await registerUser(payload);
+
       const userId = data.userId;
 
-      // redirect to verify-email page with userId and email in query
+      // Step 2: Aadhaar verification page (new)
       navigate(
-        `/verify-email?userId=${encodeURIComponent(
+        `/verify-aadhaar?userId=${encodeURIComponent(
           userId
         )}&email=${encodeURIComponent(form.email.trim())}`
       );
@@ -109,6 +120,94 @@ function SignupPage() {
               onChange={handleChange}
               placeholder="you@example.com"
               required
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="phone"
+              className="block text-sm font-medium text-slate-700 mb-1"
+            >
+              Phone (optional)
+            </label>
+            <input
+              id="phone"
+              name="phone"
+              type="tel"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+              value={form.phone}
+              onChange={handleChange}
+              placeholder="9876543210"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="address"
+              className="block text-sm font-medium text-slate-700 mb-1"
+            >
+              Address
+            </label>
+            <textarea
+              id="address"
+              name="address"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+              value={form.address}
+              onChange={handleChange}
+              placeholder="House / Flat, Street, City, PIN"
+              rows={2}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="deviceBrand"
+                className="block text-sm font-medium text-slate-700 mb-1"
+              >
+                Device brand
+              </label>
+              <input
+                id="deviceBrand"
+                name="deviceBrand"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                value={form.deviceBrand}
+                onChange={handleChange}
+                placeholder="Samsung, Apple…"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="deviceModel"
+                className="block text-sm font-medium text-slate-700 mb-1"
+              >
+                Device model
+              </label>
+              <input
+                id="deviceModel"
+                name="deviceModel"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                value={form.deviceModel}
+                onChange={handleChange}
+                placeholder="S23, iPhone 15…"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="deviceImei"
+              className="block text-sm font-medium text-slate-700 mb-1"
+            >
+              Device IMEI
+            </label>
+            <input
+              id="deviceImei"
+              name="deviceImei"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+              value={form.deviceImei}
+              onChange={handleChange}
+              placeholder="IMEI number"
             />
           </div>
 

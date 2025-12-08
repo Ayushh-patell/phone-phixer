@@ -3,11 +3,13 @@ import User from "../models/User.js";
 import Code from "../models/Code.js";
 import bcrypt from "bcrypt";
 import nodemailer from "nodemailer";
+import axios from "axios";
 import crypto from 'crypto'
 import { protect } from "../middleware/authMiddleware.js";
 import jwt from "jsonwebtoken"
 import { placeInReferralTree } from "../lib/PlacementLogic.js";
 import { getStarLevels } from "../lib/starLogic.js";
+import { getSandboxToken } from "../lib/sandboxClient.js";
 
 
 
@@ -19,11 +21,23 @@ const router = express.Router();
 // ====== USER CREATION ======
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, referralCode } = req.body || {};
+    const {
+      name,
+      email,
+      password,
+      referralCode,
+      phone,
+      address,
+      deviceBrand,
+      deviceModel,
+      deviceImei,
+    } = req.body || {};
 
     // Check if all required fields are provided
     if (!name || !email || !password) {
-      return res.status(400).json({ message: "Name, email, and password are required" });
+      return res
+        .status(400)
+        .json({ message: "Name, email, and password are required" });
     }
 
     // Validate email format
@@ -34,12 +48,16 @@ router.post("/register", async (req, res) => {
 
     // Validate password length
     if (password.length < 6) {
-      return res.status(400).json({ message: "Password must be at least 6 characters long" });
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 6 characters long" });
     }
 
     // Check if user already exists
     const existing = await User.findOne({ email });
-    if (existing) return res.status(400).json({ message: "Email already exists" });
+    if (existing) {
+      return res.status(400).json({ message: "Email already exists" });
+    }
 
     // Hash password
     const hash = await bcrypt.hash(password, 10);
@@ -47,8 +65,14 @@ router.post("/register", async (req, res) => {
     const userData = {
       name,
       email,
+      phone: phone || null,
       password: hash,
-      verified: false
+      verified: false,
+      aadhaarVerified: false,
+      address: address || null,
+      deviceBrand: deviceBrand || null,
+      deviceModel: deviceModel || null,
+      deviceImei: deviceImei || null,
     };
 
     // Optional referral
@@ -64,8 +88,183 @@ router.post("/register", async (req, res) => {
 
     res.status(201).json({ message: "User created", userId: user._id });
   } catch (error) {
-    console.error(error);
+    console.error("REGISTER ERROR:", error);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ====== AADHAAR OTP: SEND ======
+router.post("/aadhaar/send-otp", async (req, res) => {
+  try {
+    const { userId, aadhaarNumber } = req.body || {};
+
+    if (!userId || userId.length !== 24) {
+      return res.status(400).json({ message: "Valid userId is required" });
+    }
+
+    if (!aadhaarNumber || !/^\d{12}$/.test(aadhaarNumber)) {
+      return res
+        .status(400)
+        .json({ message: "Valid 12-digit Aadhaar number is required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (user.aadhaarVerified) {
+      return res
+        .status(400)
+        .json({ message: "Aadhaar already verified for this user" });
+    }
+
+    const accessToken = await getSandboxToken();
+    
+    const baseURL =
+    process.env.SANDBOX_BASE_URL || "https://test-api.sandbox.co.in";
+    
+    console.log(accessToken, baseURL, process.env.SANDBOX_API_KEY);
+    const sandboxRes = await axios.post(
+      `${baseURL}/kyc/aadhaar/okyc/otp`,
+      {
+        "@entity": "in.co.sandbox.kyc.aadhaar.okyc.otp.request",
+        aadhaar_number: aadhaarNumber,
+        consent: "Y",
+        reason: "User onboarding",
+      },
+      {
+        headers: {
+          Authorization: accessToken, // NOTE: token only, no "Bearer "
+          "x-api-key": process.env.SANDBOX_API_KEY,
+          "x-api-version": process.env.SANDBOX_API_VERSION || "1.0",
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const data = sandboxRes.data;
+    const referenceId = data?.data?.reference_id;
+
+    if (!referenceId) {
+      console.error("Sandbox missing reference_id:", data);
+      return res
+        .status(502)
+        .json({ message: "Failed to generate Aadhaar OTP" });
+    }
+
+    await Code.create({
+      userId: user._id,
+      code: String(referenceId),
+      type: "aadhaar_otp",
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+
+    return res.json({
+      message: "OTP sent to Aadhaar registered mobile",
+      referenceId,
+    });
+  } catch (error) {
+    console.error(
+      "AADHAAR SEND OTP ERROR:",
+      error.response?.data || error.message || error
+    );
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+
+// ====== AADHAAR OTP: VERIFY ======
+router.post("/aadhaar/verify-otp", async (req, res) => {
+  try {
+    const { userId, otp } = req.body || {};
+
+    if (!userId || userId.length !== 24 || !otp) {
+      return res
+        .status(400)
+        .json({ message: "userId and otp are required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (user.aadhaarVerified) {
+      return res
+        .status(400)
+        .json({ message: "Aadhaar already verified for this user" });
+    }
+
+    const record = await Code.findOne({
+      userId,
+      type: "aadhaar_otp",
+    }).sort({ createdAt: -1 });
+
+    if (!record) {
+      return res.status(400).json({
+        message: "No Aadhaar OTP session found. Please resend OTP.",
+      });
+    }
+
+    if (record.expiresAt < new Date()) {
+      await Code.deleteMany({ userId, type: "aadhaar_otp" });
+      return res.status(400).json({ message: "OTP session expired" });
+    }
+
+    const referenceId = record.code;
+    const accessToken = await getSandboxToken();
+    const baseURL =
+      process.env.SANDBOX_BASE_URL || "https://test-api.sandbox.co.in";
+
+const sandboxRes = await axios.post(
+  `${baseURL}/kyc/aadhaar/okyc/otp/verify`,
+  {
+    "@entity": "in.co.sandbox.kyc.aadhaar.okyc.request",
+    reference_id: referenceId,        // string from Generate OTP response
+    otp: String(otp),                 // ensure it's a string
+  },
+  {
+    headers: {
+      Authorization: accessToken,
+      "x-api-key": process.env.SANDBOX_API_KEY,
+      "x-api-version": process.env.SANDBOX_API_VERSION || "1.0",
+      "Content-Type": "application/json",
+    },
+  }
+);
+
+    const data = sandboxRes.data;
+    const kyc = data?.data;
+
+    if (!kyc || kyc.status !== "VALID") {
+      return res.status(400).json({
+        message:
+          kyc?.message ||
+          "Invalid OTP or Aadhaar could not be verified",
+      });
+    }
+
+    const update = { aadhaarVerified: true };
+    if (kyc.full_address && !user.address) {
+      update.address = kyc.full_address;
+    }
+
+    await User.findByIdAndUpdate(userId, update);
+    await Code.deleteMany({ userId, type: "aadhaar_otp" });
+
+    return res.json({
+      message: "Aadhaar verified successfully",
+      aadhaarVerified: true,
+      aadhaarInfo: {
+        status: kyc.status,
+        message: kyc.message,
+        full_address: kyc.full_address,
+        date_of_birth: kyc.date_of_birth,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "AADHAAR VERIFY OTP ERROR:",
+      error.response?.data || error.message || error
+    );
+    return res.status(500).json({ message: "Server error" });
   }
 });
 

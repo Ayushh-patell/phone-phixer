@@ -9,7 +9,7 @@ const CodeSchema = new mongoose.Schema(
     // What type of code is it? (optional but useful)
     type: {
       type: String,
-      enum: ["otp", "recovery", "email_verify", "password_reset"],
+      enum: ["otp", "recovery", "email_verify", "password_reset", "aadhaar_otp"],
       default: "otp"
     },
 

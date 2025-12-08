@@ -10,6 +10,7 @@ import VerifyEmailPage from "./pages/EmailVerifcation.jsx";
 import "./lib/firebase.js"
 import ForgotPasswordPage from "./pages/ForgotPassword.jsx";
 import App from "./App.jsx";
+import VerifyAadhaarPage from "./pages/AdhaarVerification.jsx";
 
 const router = createBrowserRouter([
   {
@@ -31,6 +32,10 @@ const router = createBrowserRouter([
   {
     path: "/verify-email",
     element: <VerifyEmailPage />,
+  },
+  {
+    path: "/verify-aadhaar",
+    element: <VerifyAadhaarPage />,
   },
   {
     path: "/forgot-password",

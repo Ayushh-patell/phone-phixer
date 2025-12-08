@@ -10,6 +10,30 @@ const UserSchema = new mongoose.Schema(
     password: { type: String, required: true },
     verified: { type: Boolean, default: false },
 
+    // Aadhaar / KYC
+    aadhaarVerified: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Device Info
+    deviceBrand: {
+      type: String,
+    },
+    deviceModel: {
+      type: String,
+    },
+    deviceImei: {
+      type: String,
+      // don't mark unique in case multiple users share a device or for safety
+      // unique: true,
+    },
+
+    // Address (simple string; change to subdocument later if needed)
+    address: {
+      type: String,
+    },
+
     // User Roles
     role: {
       type: String,
@@ -30,7 +54,7 @@ const UserSchema = new mongoose.Schema(
     },
 
     // Referral system
-    referralCode: { type: String}, // this user's code
+    referralCode: { type: String }, // this user's code
 
     // Binary-tree parent (placement parent)
     referredBy: {
@@ -81,8 +105,7 @@ const UserSchema = new mongoose.Schema(
     walletBalance: { type: Number, default: 0 }, // money available to withdraw
     totalEarnings: { type: Number, default: 0 }, // lifetime earnings
 
-
-    star:  {type:Number, default:1},
+    star: { type: Number, default: 1 },
     checksClaimed: { type: Number, default: 0 }, // total checks already redeemed
 
     // Status

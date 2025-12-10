@@ -629,7 +629,7 @@ router.get("/me", protect, async (req, res) => {
       .populate("referredBy", "name email referralCode")
       .populate('referralUsed', "name email referralCode")
       .select(
-        "name email role selfVolume leftVolume rightVolume walletBalance totalEarnings referralCode referralActive createdAt referredBy star referralUsed at_hotposition"
+        "name email role selfVolume leftVolume rightVolume walletBalance totalEarnings referralCode referralActive createdAt referredBy star referralUsed at_hotposition deviceModel deviceBrand deviceImei"
       );
 
     if (!user) {
@@ -648,6 +648,9 @@ router.get("/me", protect, async (req, res) => {
       totalEarnings: user.totalEarnings || 0,
       referralCode: user.referralCode || null,
       referralActive: user.referralActive || false,
+      deviceBrand: user.deviceBrand,
+      deviceModel: user.deviceModel,
+      deviceImei: user.deviceImei,
       createdAt: user.createdAt,
       // referredBy info (if any)
       referredBy: user.referredBy

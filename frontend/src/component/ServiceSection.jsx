@@ -24,6 +24,11 @@ const ServicesSection = () => {
   const [error, setError] = useState("");
   const [paymentLoadingId, setPaymentLoadingId] = useState(null);
 
+  // Device info (from /users/me, but editable by user)
+  const [deviceBrand, setDeviceBrand] = useState("");
+  const [deviceModel, setDeviceModel] = useState("");
+  const [deviceImei, setDeviceImei] = useState("");
+
   // Auth config: prefer localStorage token, fallback to TEST_JWT
   const authConfig = () => {
     const token = localStorage.getItem("token") || TEST_JWT;
@@ -51,13 +56,18 @@ const ServicesSection = () => {
     }
   };
 
-  // Fetch wallet balance from /users/me
+  // Fetch wallet balance and device info from /users/me
   const fetchWalletBalance = async () => {
     try {
       setWalletLoading(true);
       const res = await axios.get(`${API_BASE_URL}/users/me`, authConfig());
       const user = res.data || {};
       setWalletBalance(Number(user.walletBalance || 0));
+
+      // pull device info and set as defaults
+      setDeviceBrand(user.deviceBrand || "");
+      setDeviceModel(user.deviceModel || "");
+      setDeviceImei(user.deviceImei || "");
     } catch (err) {
       console.error("Failed to fetch wallet balance:", err);
     } finally {
@@ -134,7 +144,6 @@ const ServicesSection = () => {
       handler: async function (response) {
         try {
           // 2. Tell backend to verify payment + create Purchase record
-          //    Also send walletUsed so backend can deduct wallet AFTER success.
           await axios.post(
             `${API_BASE_URL}/payments/verify`,
             {
@@ -142,6 +151,10 @@ const ServicesSection = () => {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_signature: response.razorpay_signature,
               serviceId: service._id,
+              // device data always sent to verify
+              deviceBrand,
+              deviceModel,
+              deviceImei,
               ...extraVerifyPayload,
             },
             authConfig()
@@ -181,11 +194,22 @@ const ServicesSection = () => {
         return;
       }
 
+      // basic device info validation (required)
+      if (!deviceBrand.trim() || !deviceModel.trim() || !deviceImei.trim()) {
+        setError("Please enter device brand, model, and IMEI before purchase.");
+        return;
+      }
+
       if (!useWallet) {
-        // Old behavior: full amount via Razorpay
+        // Full amount via Razorpay
         await startRazorpayPayment({
           service,
           payAmountInRupees: price,
+          extraVerifyPayload: {
+            deviceBrand,
+            deviceModel,
+            deviceImei,
+          },
         });
         return;
       }
@@ -196,12 +220,15 @@ const ServicesSection = () => {
       // 1) Wallet can cover full price -> wallet-only payment
       if (currentWallet >= price) {
         try {
-          // Placeholder API that you'll implement later
           const res = await axios.post(
             `${API_BASE_URL}/payments/pay-with-wallet`,
             {
               serviceId: service._id,
               amount: price,
+              // send device info for wallet payments too
+              deviceBrand,
+              deviceModel,
+              deviceImei,
             },
             authConfig()
           );
@@ -224,12 +251,6 @@ const ServicesSection = () => {
       }
 
       // 2) Partial wallet + Razorpay
-      //
-      // We only use wallet until remaining amount is at least RAZORPAY_MIN_AMOUNT.
-      // Example: price = 100, min = 1
-      // - if wallet = 30  -> walletToUse = 30, remaining = 70
-      // - if wallet = 99  -> walletToUse = 99, remaining = 1
-      // - if wallet = 150 -> FULL wallet branch above
       const maxWalletUsableForPartial = Math.max(
         0,
         price - RAZORPAY_MIN_AMOUNT
@@ -238,28 +259,27 @@ const ServicesSection = () => {
       const remainingPrice = price - walletToUse; // guaranteed >= min
 
       if (remainingPrice < RAZORPAY_MIN_AMOUNT) {
-        // Should not happen due to the math, but guard anyway
         setError(
           "Remaining amount is below Razorpay's minimum. Please adjust the payment."
         );
         return;
       }
 
-      // Start Razorpay only for the remaining price.
-      // IMPORTANT: wallet is NOT deducted on the client.
-      // We send walletUsed to backend verify so it can deduct AFTER payment is done.
       await startRazorpayPayment({
         service,
         payAmountInRupees: remainingPrice,
         extraOrderPayload: {
           useWallet: true,
-          walletToUse,      // how much we *intend* to use from wallet
+          walletToUse, // how much we *intend* to use from wallet
           originalPrice: price,
         },
         extraVerifyPayload: {
           useWallet: true,
           walletUsed: walletToUse, // backend: deduct this after successful Razorpay payment
           originalPrice: price,
+          deviceBrand,
+          deviceModel,
+          deviceImei,
         },
       });
     } catch (err) {
@@ -303,8 +323,53 @@ const ServicesSection = () => {
               onChange={(e) => setUseWallet(e.target.checked)}
               className="h-3 w-3 rounded border-slate-500 bg-slate-900 text-sky-400"
             />
-            <span >Use wallet balance for purchases</span>
+            <span>Use wallet balance for purchases</span>
           </label>
+        </div>
+      </div>
+
+      {/* Device details form (required) */}
+      <div className="mb-4 grid gap-3 md:grid-cols-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-900">
+            Device Brand <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            value={deviceBrand}
+            onChange={(e) => setDeviceBrand(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-500"
+            placeholder="e.g. Samsung"
+            required
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-900">
+            Device Model <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            value={deviceModel}
+            onChange={(e) => setDeviceModel(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-500"
+            placeholder="e.g. Galaxy S24"
+            required
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-900">
+            Device IMEI <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            value={deviceImei}
+            onChange={(e) => setDeviceImei(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-500"
+            placeholder="IMEI number"
+            required
+          />
         </div>
       </div>
 

@@ -131,6 +131,11 @@ router.post("/create-order", protect, async (req, res) => {
  *    - useWallet?: boolean
  *    - walletUsed?: number (INR) – amount to deduct from wallet AFTER payment
  *    - originalPrice?: number (INR) – original service price (for reference/log)
+ *
+ * Device info (required, coming from frontend):
+ *    - deviceBrand: string
+ *    - deviceModel: string
+ *    - deviceImei: string
  */
 router.post("/verify", protect, async (req, res) => {
   try {
@@ -142,6 +147,9 @@ router.post("/verify", protect, async (req, res) => {
       useWallet,
       walletUsed,
       originalPrice,
+      deviceBrand,
+      deviceModel,
+      deviceImei,
     } = req.body || {};
 
     if (
@@ -151,6 +159,13 @@ router.post("/verify", protect, async (req, res) => {
       !serviceId
     ) {
       return res.status(400).json({ message: "Missing payment details" });
+    }
+
+    // device data required as well
+    if (!deviceBrand || !deviceModel || !deviceImei) {
+      return res
+        .status(400)
+        .json({ message: "Device brand, model and IMEI are required" });
     }
 
     // 1. Verify signature using Razorpay secret
@@ -205,17 +220,18 @@ router.post("/verify", protect, async (req, res) => {
     // NOTE: At this point Razorpay payment is confirmed as valid.
     // We now treat the service as fully purchased.
 
-    // 4. Create purchase record
+    // 4. Create purchase record (including device info)
     const purchase = await Purchase.create({
       userId: user._id,
       serviceId: service._id,
-      // Amount paid for the service (logical price). If you want, you can
-      // later add fields like walletUsed / razorpayPaid in the schema.
       amountPaid: servicePrice,
       uvEarned: service.uv,
       status: "completed",
       razorpayOrderId: razorpay_order_id,
       razorpayPaymentId: razorpay_payment_id,
+      deviceBrand,
+      deviceModel,
+      deviceImei,
     });
 
     // 5. If using wallet partially, deduct wallet after successful payment
@@ -241,11 +257,13 @@ router.post("/verify", protect, async (req, res) => {
       user.at_hotposition = false; // they leave hotposition once activated
     }
 
+    if (!user.hasMadeFirstPurchase) {
+      user.hasMadeFirstPurchase = true;
+    }
+
     await user.save();
 
     // 7. Update upline volumes based on referral tree
-    //    - If user is placed (has referredBy), UV will flow up.
-    //    - If not placed, updateReferralVolumes will effectively do nothing.
     if (user.referredBy) {
       await updateReferralVolumes(user._id, uv);
     }
@@ -267,17 +285,30 @@ router.post("/verify", protect, async (req, res) => {
  * @desc    Purchase a service using wallet balance only (no Razorpay)
  * @access  Private
  *
- * Body: { serviceId, amount }
+ * Body: { serviceId, amount, deviceBrand, deviceModel, deviceImei }
  *  - amount: expected to match service.price (INR)
  */
 router.post("/pay-with-wallet", protect, async (req, res) => {
   try {
-    const { serviceId, amount } = req.body || {};
+    const {
+      serviceId,
+      amount,
+      deviceBrand,
+      deviceModel,
+      deviceImei,
+    } = req.body || {};
 
     if (!serviceId || typeof amount === "undefined") {
       return res
         .status(400)
         .json({ message: "serviceId and amount are required" });
+    }
+
+    // device data required
+    if (!deviceBrand || !deviceModel || !deviceImei) {
+      return res
+        .status(400)
+        .json({ message: "Device brand, model and IMEI are required" });
     }
 
     const service = await Service.findById(serviceId);
@@ -320,13 +351,16 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
     // Deduct from wallet
     user.walletBalance = Math.max(0, (user.walletBalance || 0) - amountNum);
 
-    // Create purchase record (wallet-only)
+    // Create purchase record (wallet-only, with device info)
     const purchase = await Purchase.create({
       userId: user._id,
       serviceId: service._id,
       amountPaid: servicePrice,
       uvEarned: service.uv,
       status: "completed",
+      deviceBrand,
+      deviceModel,
+      deviceImei,
       // You can add: paymentMethod: "wallet" in schema later if needed
     });
 
@@ -342,6 +376,10 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
     if (user.selfVolume >= ACTIVATION_THRESHOLD && !user.referralActive) {
       user.referralActive = true;
       user.at_hotposition = false;
+    }
+
+    if (!user.hasMadeFirstPurchase) {
+      user.hasMadeFirstPurchase = true;
     }
 
     await user.save();

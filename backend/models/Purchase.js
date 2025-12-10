@@ -8,6 +8,10 @@ const PurchaseSchema = new mongoose.Schema(
     amountPaid: { type: Number, required: true },
     uvEarned: { type: Number, required: true },
 
+    deviceBrand:{ type: String },
+    deviceModel:{ type: String },
+    deviceImei:{ type: String },
+
     status: { type: String, enum: ["completed", 'failed', 'pending'], default: "completed" }
   },
   { timestamps: true }

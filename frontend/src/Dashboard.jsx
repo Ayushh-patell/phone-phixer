@@ -5,6 +5,7 @@ import { verifyToken } from "./api/auth";
 import OverviewSection from "./component/OverviewSection";
 import ServicesSection from "./component/ServiceSection";
 import { FiStar } from "react-icons/fi";
+import PurchasesSection from "./component/PurchaseSection";
 
 // ========== MAIN DASHBOARD APP ==========
 function Dashboard() {
@@ -102,6 +103,17 @@ function Dashboard() {
           >
             Services
           </button>
+
+          <button
+            onClick={() => setActiveTab("purchases")}
+            className={`w-full text-left px-3 py-2 rounded-lg transition ${
+              activeTab === "purchases"
+                ? "bg-sky-50 text-sky-700 border border-sky-100"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            }`}
+          >
+            Purchases
+          </button>
         </nav>
 
         <div className="px-4 py-4 border-t border-slate-200 text-xs text-slate-500">
@@ -155,6 +167,7 @@ function Dashboard() {
         <main className="flex-1 px-4 py-4 md:px-6 md:py-6">
           {activeTab === "overview" && <OverviewSection user={user} />}
           {activeTab === "services" && <ServicesSection />}
+          {activeTab === "purchases" && <PurchasesSection />}
         </main>
       </div>
     </div>

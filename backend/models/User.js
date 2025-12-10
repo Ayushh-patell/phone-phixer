@@ -47,6 +47,12 @@ const UserSchema = new mongoose.Schema(
       default: false,
     },
 
+    hasMadeFirstPurchase: {
+      type: Boolean,
+      default: false,
+      index: true, // optional but nice for the cron query
+    },
+
     // Whether user is eligible/active in the referral tree
     referralActive: {
       type: Boolean,

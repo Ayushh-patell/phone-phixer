@@ -9,6 +9,7 @@ import paymentRoutes from "./routes/paymentRoutes.js";
 import referralRoutes from "./routes/referralRoutes.js";
 import settingsRoutes from "./routes/universalSettingsRoutes.js";
 import checkRoutes from "./routes/checkRoutes.js";
+import purchaseRoutes from "./routes/purchasesRoutes.js";
 
 
 
@@ -33,6 +34,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/referrals", referralRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/checks", checkRoutes);
+app.use("/api/purchases", purchaseRoutes);
 
 
 // Start Server

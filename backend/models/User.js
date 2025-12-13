@@ -8,7 +8,7 @@ const UserSchema = new mongoose.Schema(
     email: { type: String, unique: true, sparse: true, required: true },
     phone: { type: String, unique: true, sparse: true },
     password: { type: String, required: true },
-    adhaarNumber: { type: String, required: true },
+    adhaarNumber: { type: String },
     verified: { type: Boolean, default: false },
 
     // Aadhaar / KYC

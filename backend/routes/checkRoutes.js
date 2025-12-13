@@ -9,8 +9,36 @@ import {
   CHECK_PAYOUT_AMOUNT,
 } from "../lib/checkLogic.js";
 import { runWeeklyCheckPayouts } from "../cron/weeklyCheckPayoutJob.js";
+import UserMonthlyCheckStats from "../models/UserMonthlyCheckStats.js";
 
 const router = express.Router();
+
+function monthStartUTC(d = new Date()) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
+}
+
+function parseMonthParam(monthStr) {
+  // accepts "YYYY-MM" (recommended) or ISO date
+  if (!monthStr) return null;
+
+  // "2025-12"
+  const m = /^(\d{4})-(\d{2})$/.exec(monthStr);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]); // 1-12
+    if (mo < 1 || mo > 12) return null;
+    return new Date(Date.UTC(y, mo - 1, 1));
+  }
+
+  // fallback: Date parse
+  const d = new Date(monthStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return monthStartUTC(d);
+}
+
+function addMonthsUTC(date, months) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1, 0, 0, 0, 0));
+}
 
 
 
@@ -158,6 +186,188 @@ router.get("/stats", protect, async (req, res) => {
   } catch (err) {
     console.error("Error fetching stats:", err);
     return res.status(500).json({ message: "Server error" });
+  }
+});
+
+
+
+
+
+/**
+ * =========================
+ * ADMIN APIs
+ * =========================
+ */
+
+/**
+ * Admin: Get one user's monthly stats (by userId OR email)
+ * GET /api/checks/admin/user?email=a@b.com&months=6
+ * GET /api/checks/admin/user?userId=...&months=12
+ * Optional: &from=YYYY-MM  (otherwise last N months)
+ */
+router.get("/admin/user", protect, async (req, res) => {
+  try {
+
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({ message: "Admins only" });
+    }
+
+    const { email, userId } = req.query;
+    const months = Math.min(Math.max(Number(req.query.months || 6), 1), 12); // 1..12
+    const from = parseMonthParam(req.query.from);
+
+    if (!email && !userId) {
+      return res.status(400).json({ message: "Provide email or userId" });
+    }
+
+    const user = email
+      ? await User.findOne({ email: String(email).toLowerCase().trim() }).select("_id name email role")
+      : await User.findById(userId).select("_id name email role");
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const start = from ? from : monthStartUTC(addMonthsUTC(new Date(), -(months - 1)));
+
+    const stats = await UserMonthlyCheckStats.find({
+      user: user._id,
+      month: { $gte: start },
+    })
+      .sort({ month: 1 })
+      .lean();
+
+    return res.json({
+      user: { id: user._id, name: user.name, email: user.email },
+      range: { from: start.toISOString(), months },
+      stats,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * Admin: Get all users stats for a given month (leaderboard / reporting)
+ * GET /api/checks/admin/month?month=YYYY-MM&limit=50&skip=0
+ */
+router.get("/admin/month", protect, async (req, res) => {
+  try {
+
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({ message: "Admins only" });
+    }
+
+    const month = parseMonthParam(req.query.month);
+    if (!month) return res.status(400).json({ message: "month is required (YYYY-MM)" });
+
+    const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 500);
+    const skip = Math.max(Number(req.query.skip || 0), 0);
+
+    const rows = await UserMonthlyCheckStats.find({ month })
+      .sort({ checksCreated: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("user", "name email role")
+      .lean();
+
+    // optional total count for pagination
+    const total = await UserMonthlyCheckStats.countDocuments({ month });
+
+    res.json({
+      month: month.toISOString(),
+      total,
+      limit,
+      skip,
+      rows: rows.map((r) => ({
+        user: r.user ? { id: r.user._id, name: r.user.name, email: r.user.email } : null,
+        checksCreated: r.checksCreated,
+        month: r.month,
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * Admin: Range query (all users) for reporting
+ * GET /api/checks/admin/range?from=YYYY-MM&to=YYYY-MM
+ */
+router.get("/admin/range", protect, async (req, res) => {
+  try {
+    
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({ message: "Admins only" });
+    }
+
+    const from = parseMonthParam(req.query.from);
+    const to = parseMonthParam(req.query.to);
+    if (!from || !to) return res.status(400).json({ message: "from and to are required (YYYY-MM)" });
+    if (to < from) return res.status(400).json({ message: "to must be >= from" });
+
+    const endExclusive = addMonthsUTC(to, 1);
+
+    const rows = await UserMonthlyCheckStats.find({
+      month: { $gte: from, $lt: endExclusive },
+    })
+      .populate("user", "name email")
+      .sort({ month: 1, checksCreated: -1 })
+      .lean();
+
+    res.json({
+      from: from.toISOString(),
+      to: to.toISOString(),
+      rows: rows.map((r) => ({
+        user: r.user ? { id: r.user._id, name: r.user.name, email: r.user.email } : null,
+        month: r.month,
+        checksCreated: r.checksCreated,
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * =========================
+ * PUBLIC (USER) APIs
+ * =========================
+ */
+
+/**
+ * User: get their own last N months stats
+ * GET /api/checks/me?months=6
+ * Optional: &from=YYYY-MM
+ */
+router.get("/me", protect, async (req, res) => {
+  try {
+    // optional: block disabled users if you want
+    if (req.user?.isDisabled) {
+      return res.status(403).json({ message: "Account disabled" });
+    }
+
+    const months = Math.min(Math.max(Number(req.query.months || 6), 1), 12);
+    const from = parseMonthParam(req.query.from);
+
+    const start = from ? from : monthStartUTC(addMonthsUTC(new Date(), -(months - 1)));
+
+    const stats = await UserMonthlyCheckStats.find({
+      user: req.user.id,
+      month: { $gte: start },
+    })
+      .sort({ month: 1 })
+      .lean();
+
+    res.json({
+      userId: req.user.id,
+      range: { from: start.toISOString(), months },
+      stats,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 

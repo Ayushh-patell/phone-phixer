@@ -20,7 +20,8 @@ function LoginPage() {
       if (data.user) {
         localStorage.setItem("user", JSON.stringify(data.user));
       }
-      navigate("/");
+      console.log(data,"data before redirect", localStorage.getItem("token"));
+      navigate("/dashboard");
     } catch (err) {
       setError(err.message || "Login failed");
     } finally {

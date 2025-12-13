@@ -158,6 +158,9 @@ router.post("/aadhaar/send-otp", async (req, res) => {
       expiresAt: new Date(Date.now() + 5 * 60 * 1000),
     });
 
+    user.adhaarNumber = aadhaarNumber;
+    await user.save();
+
     return res.json({
       message: "OTP sent to Aadhaar registered mobile",
       referenceId,
@@ -448,17 +451,18 @@ router.post("/verify-token", async (req, res) => {
       return res.status(401).json({ valid: false, message: "Invalid token" });
     }
 
-    const user = await User.findById(decoded.id).select("_id name email admin verified, star");
+    const user = await User.findById(decoded.id).select("_id name email admin verified star Totalrsp aadhaarVerified referralActive");
     if (!user) {
       return res.status(404).json({ valid: false, message: "User not found" });
     }
     const levels = await getStarLevels()
 
     const userStars = levels.find((item) => item.lvl === user.star);
-
+const needed = (user.referralActive && !user.aadhaarVerified)
 
     return res.json({
       valid: true,
+      needAadhaar: needed,
       message: "Token is valid",
       user: {
         id: user._id,
@@ -466,6 +470,7 @@ router.post("/verify-token", async (req, res) => {
         email: user.email,
         admin: user.admin ?? false,
         star:userStars,
+        rsp:user.Totalrsp,
         verified: user.verified,
       },
       tokenPayload: {
@@ -629,7 +634,7 @@ router.get("/me", protect, async (req, res) => {
       .populate("referredBy", "name email referralCode")
       .populate('referralUsed', "name email referralCode")
       .select(
-        "name email role selfVolume leftVolume rightVolume walletBalance totalEarnings referralCode referralActive createdAt referredBy star referralUsed at_hotposition deviceModel deviceBrand deviceImei"
+        "name email role selfVolume leftVolume rightVolume walletBalance totalEarnings referralCode referralActive createdAt referredBy star referralUsed at_hotposition deviceModel deviceBrand deviceImei, rsp"
       );
 
     if (!user) {
@@ -651,6 +656,7 @@ router.get("/me", protect, async (req, res) => {
       deviceBrand: user.deviceBrand,
       deviceModel: user.deviceModel,
       deviceImei: user.deviceImei,
+      rsp: user.rsp,
       createdAt: user.createdAt,
       // referredBy info (if any)
       referredBy: user.referredBy

@@ -1,11 +1,12 @@
 import express from "express";
-import Purchase from "../models/Purchase.js";
-import { protect } from "../middleware/authMiddleware.js";
-
 const router = express.Router();
 
 
 
+
+
+import Purchase from "../models/Purchase.js";
+import { protect } from "../middleware/authMiddleware.js";
 /**
  * @route   GET /api/purchases/admin
  * @desc    Get all purchases (admin only) with optional date range
@@ -23,16 +24,16 @@ router.get("/admin", protect, async (req, res) => {
 
     const filter = {};
 
-    // Optional date range on createdAt
+    // Optional date range on createdAt / renewedAt
     if (startDate || endDate) {
-      filter.createdAt = {};
+      const dateFilter = {};
 
       if (startDate) {
         const start = new Date(startDate);
         if (isNaN(start.getTime())) {
           return res.status(400).json({ message: "Invalid startDate" });
         }
-        filter.createdAt.$gte = start;
+        dateFilter.$gte = start;
       }
 
       if (endDate) {
@@ -42,8 +43,14 @@ router.get("/admin", protect, async (req, res) => {
         }
         // include full end day
         end.setHours(23, 59, 59, 999);
-        filter.createdAt.$lte = end;
+        dateFilter.$lte = end;
       }
+
+      // match purchases either created OR renewed in this range
+      filter.$or = [
+        { createdAt: dateFilter },
+        { renewedAt: dateFilter },
+      ];
     }
 
     const purchases = await Purchase.find(filter)
@@ -57,7 +64,10 @@ router.get("/admin", protect, async (req, res) => {
     const purchasesWithValidity = purchases.map((p) => {
       const obj = p.toObject();
       const service = obj.serviceId; // populated Service
-      const createdDate = obj.createdAt ? new Date(obj.createdAt) : null;
+
+      // base date = renewedAt if exists, else createdAt
+      const baseDateRaw = obj.renewedAt || obj.createdAt;
+      const baseDate = baseDateRaw ? new Date(baseDateRaw) : null;
 
       let expired = true;
       let daysLeft = 0;
@@ -65,9 +75,9 @@ router.get("/admin", protect, async (req, res) => {
 
       const validityDays = service?.validityDays || 0;
 
-      if (createdDate && validityDays > 0) {
+      if (baseDate && validityDays > 0) {
         const expiryDate = new Date(
-          createdDate.getTime() + validityDays * MS_PER_DAY
+          baseDate.getTime() + validityDays * MS_PER_DAY
         );
         expiresAt = expiryDate;
 
@@ -116,14 +126,14 @@ router.get("/me", protect, async (req, res) => {
     const filter = { userId: req.user.id };
 
     if (startDate || endDate) {
-      filter.createdAt = {};
+      const dateFilter = {};
 
       if (startDate) {
         const start = new Date(startDate);
         if (isNaN(start.getTime())) {
           return res.status(400).json({ message: "Invalid startDate" });
         }
-        filter.createdAt.$gte = start;
+        dateFilter.$gte = start;
       }
 
       if (endDate) {
@@ -132,8 +142,14 @@ router.get("/me", protect, async (req, res) => {
           return res.status(400).json({ message: "Invalid endDate" });
         }
         end.setHours(23, 59, 59, 999);
-        filter.createdAt.$lte = end;
+        dateFilter.$lte = end;
       }
+
+      // match purchases either created OR renewed in this range
+      filter.$or = [
+        { createdAt: dateFilter },
+        { renewedAt: dateFilter },
+      ];
     }
 
     const purchases = await Purchase.find(filter)
@@ -146,7 +162,10 @@ router.get("/me", protect, async (req, res) => {
     const purchasesWithValidity = purchases.map((p) => {
       const obj = p.toObject();
       const service = obj.serviceId; // populated Service
-      const createdDate = obj.createdAt ? new Date(obj.createdAt) : null;
+
+      // base date = renewedAt if exists, else createdAt
+      const baseDateRaw = obj.renewedAt || obj.createdAt;
+      const baseDate = baseDateRaw ? new Date(baseDateRaw) : null;
 
       let expired = true;
       let daysLeft = 0;
@@ -154,9 +173,9 @@ router.get("/me", protect, async (req, res) => {
 
       const validityDays = service?.validityDays || 0;
 
-      if (createdDate && validityDays > 0) {
+      if (baseDate && validityDays > 0) {
         const expiryDate = new Date(
-          createdDate.getTime() + validityDays * MS_PER_DAY
+          baseDate.getTime() + validityDays * MS_PER_DAY
         );
         expiresAt = expiryDate;
 
@@ -190,5 +209,6 @@ router.get("/me", protect, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
+
 
 export default router;

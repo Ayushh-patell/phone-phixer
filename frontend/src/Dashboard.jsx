@@ -4,8 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { verifyToken } from "./api/auth";
 import OverviewSection from "./component/OverviewSection";
 import ServicesSection from "./component/ServiceSection";
-import { FiStar } from "react-icons/fi";
+import { FiRefreshCw, FiStar } from "react-icons/fi";
 import PurchasesSection from "./component/PurchaseSection";
+import StarsSection from "./component/StarsSection";
 
 // ========== MAIN DASHBOARD APP ==========
 function Dashboard() {
@@ -17,7 +18,9 @@ function Dashboard() {
   useEffect(() => {
     async function checkAuth() {
       const token = localStorage.getItem("token");
-
+      console.log(token);
+      
+      
       if (!token) {
         navigate("/login", { replace: true });
         return;
@@ -25,6 +28,14 @@ function Dashboard() {
 
       try {
         const data = await verifyToken(token);
+        console.log(data);
+
+        if(data.needAadhaar) {
+          navigate(`/verify-aadhaar?userId=${encodeURIComponent(
+            data.user.id
+          )}`, { replace: true });
+          return;
+        }
 
         if (data.valid) {
           setUser(data.user || null);
@@ -62,6 +73,8 @@ function Dashboard() {
     );
   }
 
+  console.log(user, "User");
+  
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex">
       {/* Sidebar */}
@@ -114,6 +127,17 @@ function Dashboard() {
           >
             Purchases
           </button>
+
+          <button
+            onClick={() => setActiveTab("stars")}
+            className={`w-full text-left px-3 py-2 rounded-lg transition ${
+              activeTab === "stars"
+                ? "bg-sky-50 text-sky-700 border border-sky-100"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            }`}
+          >
+            Stars
+          </button>
         </nav>
 
         <div className="px-4 py-4 border-t border-slate-200 text-xs text-slate-500">
@@ -140,6 +164,12 @@ function Dashboard() {
             {user && (
               <>
 
+              <div className="hidden sm:flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs">
+                <FiRefreshCw/>
+                <span className="truncate max-w-[140px] text-slate-700">
+                  {user.Totalrsp || "0"} RSP
+                </span>
+              </div>
               <div className="hidden sm:flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs">
                 <FiStar/>
                 <span className="truncate max-w-[140px] text-slate-700">
@@ -168,6 +198,7 @@ function Dashboard() {
           {activeTab === "overview" && <OverviewSection user={user} />}
           {activeTab === "services" && <ServicesSection />}
           {activeTab === "purchases" && <PurchasesSection />}
+          {activeTab === "stars" && <StarsSection />}
         </main>
       </div>
     </div>

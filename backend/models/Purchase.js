@@ -12,7 +12,9 @@ const PurchaseSchema = new mongoose.Schema(
     deviceModel:{ type: String },
     deviceImei:{ type: String },
 
-    status: { type: String, enum: ["completed", 'failed', 'pending'], default: "completed" }
+    status: { type: String, enum: ["completed", 'failed', 'pending'], default: "completed" },
+
+    renewedAt: {type: Date}
   },
   { timestamps: true }
 );

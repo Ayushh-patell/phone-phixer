@@ -50,12 +50,13 @@ function SignupPage() {
 
       const userId = data.userId;
 
-      // Step 2: Aadhaar verification page (new)
+      // Step 2: Email verification page
       navigate(
-        `/verify-aadhaar?userId=${encodeURIComponent(
+        `/verify-email?userId=${encodeURIComponent(
           userId
         )}&email=${encodeURIComponent(form.email.trim())}`
       );
+
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {

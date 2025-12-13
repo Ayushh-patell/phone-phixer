@@ -1,13 +1,12 @@
 // src/pages/VerifyAadhaarPage.jsx
-import React, { useState, useEffect } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { sendAadhaarOtp, verifyAadhaarOtp } from "../api/auth";
 
 function VerifyAadhaarPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const userId = searchParams.get("userId") || "";
-  const email = searchParams.get("email") || "";
 
   const [aadhaarNumber, setAadhaarNumber] = useState("");
   const [otp, setOtp] = useState("");
@@ -67,12 +66,8 @@ function VerifyAadhaarPage() {
 
       setInfo("Aadhaar verified successfully.");
 
-      // After Aadhaar is verified, go to existing email verification flow
-      navigate(
-        `/verify-email?userId=${encodeURIComponent(
-          userId
-        )}&email=${encodeURIComponent(email)}`
-      );
+      // After Aadhaar is verified, go back to dashboard
+      navigate('/dashboard');
     } catch (err) {
       setError(err.message || "Failed to verify OTP");
     } finally {

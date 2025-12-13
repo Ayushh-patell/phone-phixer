@@ -2,6 +2,7 @@
 import cron from "node-cron";
 import User from "../models/User.js";
 import Stats from "../models/Stats.js";
+import UserMonthlyCheckStats from "../models/UserMonthlyCheckStats.js";
 import {
   calculateSelfChecks,
   calculateTreeChecks,
@@ -9,98 +10,135 @@ import {
 import { getStarLevels } from "../lib/starLogic.js";
 import { getSettingValue } from "../routes/universalSettingsRoutes.js";
 
-/**
- * Core job: go through all users, compute checks, cap by max limit,
- * pay them based on star level, consume UV, and update global Stats.
- */
+// ---- helpers for monthly stats ----
+function monthStartUTC(date = new Date()) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0));
+}
+
+async function cleanupOldMonthlyStats(retainMonths = 12) {
+  const now = new Date();
+  const cutoff = monthStartUTC(
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - retainMonths, 1))
+  );
+
+  const result = await UserMonthlyCheckStats.deleteMany({ month: { $lt: cutoff } });
+  console.log(
+    `[CRON] Monthly stats cleanup: deleted ${result.deletedCount} docs older than ${cutoff.toISOString()}`
+  );
+}
+
 export const runWeeklyCheckPayouts = async () => {
   console.log("[CRON] Weekly check payout job started");
 
-  // Load global settings
-  const [starLevels, maxChecksSetting] = await Promise.all([
-    getStarLevels(), // from starLogic.js (reads star_levels)
-    getSettingValue("max_checks_per_week", 290),
+  const [starLevels, maxUVSetting, moneyToRspSetting] = await Promise.all([
+    getStarLevels(),
+    getSettingValue("max_checks_per_week", 290), // NOTE: this is max UV per week in your logic
+    getSettingValue("money_to_rsp", 1.1),
   ]);
 
-  const maxChecksPerRun = Number(maxChecksSetting) || 0; // 0 => no cap
+  const maxUVPerRun = Number(maxUVSetting) || 0; // 0 => no cap
+  const moneyToRsp = Number(moneyToRspSetting) || 1.1;
 
-  // Fetch users that actually have some UV
+  // Convert UV->checks uses 4 UV per check (self=4, tree=2+2)
+  const maxPayableChecks =
+    maxUVPerRun > 0 ? Math.floor(maxUVPerRun / 4) : 0; // 0 used only when cap exists
+  // If maxUVPerRun=0 => no cap => payable = totalChecks
+
   const users = await User.find({
     $or: [
       { selfVolume: { $gt: 0 } },
       { leftVolume: { $gt: 0 } },
       { rightVolume: { $gt: 0 } },
+      { rsp: { $gt: 0 } },
     ],
   }).select(
-    "_id selfVolume leftVolume rightVolume walletBalance totalEarnings checksClaimed star"
+    "_id selfVolume leftVolume rightVolume walletBalance totalEarnings checksClaimed star rsp"
   );
 
-  let totalChecksAllUsers = 0;   // checks actually paid to users
+  let totalChecksAllUsers = 0; // payable checks (credited to users)
   let totalPayoutAllUsers = 0;
+
+  let totalRspConvertedAmount = 0;
+  let totalRspConvertedUnits = 0;
+
+  const statsBulkOps = [];
+  const month = monthStartUTC(new Date());
 
   for (const user of users) {
     const selfVol = user.selfVolume || 0;
     const leftVol = user.leftVolume || 0;
     const rightVol = user.rightVolume || 0;
 
-    // 1) How many checks does this user have from current UV?
-    const selfChecks = calculateSelfChecks(selfVol);
-    const treeChecks = calculateTreeChecks(leftVol, rightVol);
-    const totalChecks = selfChecks + treeChecks;
+    // ---- RSP -> money conversion ----
+    const currentRsp = user.rsp || 0;
+    const didConvertRsp = currentRsp > 0;
 
-    if (totalChecks <= 0) {
-      continue; // nothing to do for this user
+    if (didConvertRsp) {
+      const rspMoney = currentRsp * moneyToRsp;
+      user.walletBalance = (user.walletBalance || 0) + rspMoney;
+      user.totalEarnings = (user.totalEarnings || 0) + rspMoney;
+      user.rsp = 0;
+
+      totalRspConvertedUnits += currentRsp;
+      totalRspConvertedAmount += rspMoney;
     }
 
-    // 2) Figure out how many checks we will actually pay them for
+    // ---- compute checks from ALL UV (no cap here) ----
+    const selfChecks = calculateSelfChecks(selfVol);
+    const treeChecks = calculateTreeChecks(leftVol, rightVol);
+    const totalChecksPossible = selfChecks + treeChecks;
+
+    // If no checks possible, only save if RSP converted
+    if (totalChecksPossible <= 0) {
+      if (didConvertRsp) await user.save();
+      continue;
+    }
+
+    // ---- cap ONLY the checks credited to user (based on max UV 290) ----
     const payableChecks =
-      maxChecksPerRun > 0 ? Math.min(totalChecks, maxChecksPerRun) : totalChecks;
+      maxUVPerRun > 0 ? Math.min(totalChecksPossible, maxPayableChecks) : totalChecksPossible;
 
-    const companyChecks = totalChecks - payableChecks; // "goes to company" (not paid)
+    const burnedChecks = totalChecksPossible - payableChecks; // internal/company burn (not saved in monthly stats)
 
-    // 3) Find the check price based on star level
+    // ✅ Monthly stats: store ONLY checks credited to user, additive across runs
+    if (payableChecks > 0) {
+      statsBulkOps.push({
+        updateOne: {
+          filter: { user: user._id, month },
+          update: { $inc: { checksCreated: payableChecks } },
+          upsert: true,
+        },
+      });
+    }
+
+    // ---- consume UV for ALL checks possible (paid + burned) ----
+    // selfChecks consume 4 self UV each
+    // treeChecks consume 2 left + 2 right each
+    const usedSelfUV = selfChecks * 4;
+    const usedLeftUV = treeChecks * 2;
+    const usedRightUV = treeChecks * 2;
+
+    user.selfVolume = Math.max(0, selfVol - usedSelfUV);
+    user.leftVolume = Math.max(0, leftVol - usedLeftUV);
+    user.rightVolume = Math.max(0, rightVol - usedRightUV);
+
+    // ---- payout for payableChecks only ----
     const level = user.star || 0;
     const starCfg =
-      starLevels.find(
-        (s) =>
-          s.lvl === level || // if config uses "lvl"
-          s.level === level  // if config uses "level"
-      ) || {};
-
+      starLevels.find((s) => s.lvl === level || s.level === level) || {};
     const checkPrice = starCfg.checkPrice ?? 0;
 
     if (!checkPrice || checkPrice <= 0) {
       console.warn(
-        `[CRON] User ${user._id} has checks (${totalChecks}) but star level ${level} has no checkPrice configured. Skipping payout.`
+        `[CRON] User ${user._id} has checks possible (${totalChecksPossible}) but star level ${level} has no checkPrice configured. Skipping payout. Burned checks will still be consumed.`
       );
-
-      // We still want to consume UV (company keeps all these checks)
-      const usedSelfUV = selfChecks * 4;
-      const usedLeftUV = treeChecks * 2;
-      const usedRightUV = treeChecks * 2;
-
-      user.selfVolume = Math.max(0, selfVol - usedSelfUV);
-      user.leftVolume = Math.max(0, leftVol - usedLeftUV);
-      user.rightVolume = Math.max(0, rightVol - usedRightUV);
 
       await user.save();
       continue;
     }
 
-    // 4) Compute how much UV we consume (for ALL checks, payable + company)
-    const usedSelfUV = selfChecks * 4;
-    const usedLeftUV = treeChecks * 2;
-    const usedRightUV = treeChecks * 2;
-
-    // Subtract consumed UV from user volumes
-    user.selfVolume = Math.max(0, selfVol - usedSelfUV);
-    user.leftVolume = Math.max(0, leftVol - usedLeftUV);
-    user.rightVolume = Math.max(0, rightVol - usedRightUV);
-
-    // 5) Compute payout ONLY for payableChecks
     const payoutAmount = payableChecks * checkPrice;
 
-    // 6) Update user wallet + earnings + checksClaimed
     user.checksClaimed = (user.checksClaimed || 0) + payableChecks;
     user.walletBalance = (user.walletBalance || 0) + payoutAmount;
     user.totalEarnings = (user.totalEarnings || 0) + payoutAmount;
@@ -110,22 +148,32 @@ export const runWeeklyCheckPayouts = async () => {
     totalChecksAllUsers += payableChecks;
     totalPayoutAllUsers += payoutAmount;
 
-    // If you later want stats for companyChecks, you can add another Stats field
-    if (companyChecks > 0) {
+    if (burnedChecks > 0) {
       console.log(
-        `[CRON] User ${user._id} had ${totalChecks} checks, paid ${payableChecks}, company kept ${companyChecks}.`
+        `[CRON] User ${user._id} had ${totalChecksPossible} checks possible, credited ${payableChecks}, burned ${burnedChecks}. (cap=${maxUVPerRun} UV => ${maxPayableChecks} checks)`
       );
     }
   }
 
-  // 7) Update global stats once
-  if (totalChecksAllUsers > 0 || totalPayoutAllUsers > 0) {
+  // bulk write monthly stats after loop
+  if (statsBulkOps.length > 0) {
+    await UserMonthlyCheckStats.bulkWrite(statsBulkOps, { ordered: false });
+    console.log(
+      `[CRON] Monthly stats updated for ${statsBulkOps.length} users (month=${month.toISOString()}).`
+    );
+  }
+
+  // update global stats
+  if (totalChecksAllUsers > 0 || totalPayoutAllUsers > 0 || totalRspConvertedAmount > 0) {
     await Stats.findOneAndUpdate(
       { key: "global" },
       {
         $inc: {
-          totalChecksCreated: totalChecksAllUsers,
+          totalChecksCreated: totalChecksAllUsers, // credited checks
           totalPayoutAmount: totalPayoutAllUsers,
+
+          totalRspConvertedUnits: totalRspConvertedUnits,
+          totalRspConvertedAmount: totalRspConvertedAmount,
         },
         $setOnInsert: { key: "global" },
       },
@@ -134,13 +182,10 @@ export const runWeeklyCheckPayouts = async () => {
   }
 
   console.log(
-    `[CRON] Weekly check payout job finished. Paid checks: ${totalChecksAllUsers}, Payout: ${totalPayoutAllUsers}`
+    `[CRON] Weekly check payout job finished. Credited checks: ${totalChecksAllUsers}, Payout: ${totalPayoutAllUsers}, RSP converted: ${totalRspConvertedUnits} => ${totalRspConvertedAmount}`
   );
 };
 
-/**
- * Schedule the cron job to run once a week (example: Monday 00:05).
- */
 export const startWeeklyCheckCron = () => {
   cron.schedule("5 0 * * 1", () => {
     runWeeklyCheckPayouts().catch((err) => {
@@ -148,5 +193,12 @@ export const startWeeklyCheckCron = () => {
     });
   });
 
+  cron.schedule("20 3 * * *", () => {
+    cleanupOldMonthlyStats(12).catch((err) => {
+      console.error("[CRON] Monthly stats cleanup error:", err);
+    });
+  });
+
   console.log("[CRON] Weekly check payout job scheduled (every Monday 00:05).");
+  console.log("[CRON] Monthly stats cleanup scheduled (daily 03:20, retain 12 months).");
 };

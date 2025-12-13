@@ -8,6 +8,7 @@ const UserSchema = new mongoose.Schema(
     email: { type: String, unique: true, sparse: true, required: true },
     phone: { type: String, unique: true, sparse: true },
     password: { type: String, required: true },
+    adhaarNumber: { type: String, required: true },
     verified: { type: Boolean, default: false },
 
     // Aadhaar / KYC
@@ -106,6 +107,8 @@ const UserSchema = new mongoose.Schema(
     leftVolume: { type: Number, default: 0 }, // total left side UV
     rightVolume: { type: Number, default: 0 }, // total right side UV
     selfVolume: { type: Number, default: 0 }, // total self UV
+    rsp: { type: Number, default: 0 }, // Current RSP
+    Totalrsp: { type: Number, default: 0 }, // total RSP
 
     // Wallet Summary
     walletBalance: { type: Number, default: 0 }, // money available to withdraw

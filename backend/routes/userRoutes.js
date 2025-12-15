@@ -634,12 +634,16 @@ router.get("/me", protect, async (req, res) => {
       .populate("referredBy", "name email referralCode")
       .populate('referralUsed', "name email referralCode")
       .select(
-        "name email role selfVolume leftVolume rightVolume walletBalance totalEarnings referralCode referralActive createdAt referredBy star referralUsed at_hotposition deviceModel deviceBrand deviceImei, rsp"
+        "name email role selfVolume leftVolume rightVolume walletBalance totalEarnings referralCode referralActive createdAt referredBy star referralUsed at_hotposition deviceModel deviceBrand deviceImei, rsp Totalrsp"
       );
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
+    const levels = await getStarLevels()
+
+    const userStars = levels.find((item) => item.lvl === user.star);
 
     return res.json({
       id: user._id,
@@ -657,6 +661,7 @@ router.get("/me", protect, async (req, res) => {
       deviceModel: user.deviceModel,
       deviceImei: user.deviceImei,
       rsp: user.rsp,
+      Totalrsp: user.Totalrsp,
       createdAt: user.createdAt,
       // referredBy info (if any)
       referredBy: user.referredBy
@@ -669,6 +674,7 @@ router.get("/me", protect, async (req, res) => {
         : null,
       availableChecks: user.availableChecks || 0, // optional, if you add to schema or compute
       star: user.star || 1,
+      starInfo:userStars,
       referralUsed:user.referralUsed
         ? {
             id: user.referralUsed._id,

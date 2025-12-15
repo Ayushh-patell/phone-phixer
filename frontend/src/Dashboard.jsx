@@ -167,7 +167,7 @@ function Dashboard() {
               <div className="hidden sm:flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs">
                 <FiRefreshCw/>
                 <span className="truncate max-w-[140px] text-slate-700">
-                  {user.Totalrsp || "0"} RSP
+                  {user.rsp || "0"} Total RSP
                 </span>
               </div>
               <div className="hidden sm:flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs">

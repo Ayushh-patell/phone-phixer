@@ -33,6 +33,11 @@ function SignupPage() {
       return;
     }
 
+    if(form.deviceImei.length !== 15) {
+      setError("IMEI Number incorrect");
+      return;
+    }
+
     setLoading(true);
     try {
       const payload = {

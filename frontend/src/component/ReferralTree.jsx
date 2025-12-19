@@ -1,22 +1,28 @@
 // src/components/ReferralTree.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import {
+  FiUsers,
+  FiGitBranch,
+  FiArrowLeft,
+  FiArrowRight,
+  FiTarget,
+  FiZap,
+  FiInfo,
+  FiCheckCircle,
+  FiAlertTriangle,
+} from "react-icons/fi";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 // Build a proper tree from the flat nodes array
 function buildBinaryTree(treeData) {
-  if (
-    !treeData ||
-    !Array.isArray(treeData.nodes) ||
-    treeData.nodes.length === 0
-  ) {
+  if (!treeData || !Array.isArray(treeData.nodes) || treeData.nodes.length === 0) {
     return null;
   }
 
   const { nodes, rootUserId } = treeData;
 
-  // Clone nodes and add left/right fields
   const byId = new Map(
     nodes.map((n) => [
       n.id,
@@ -28,14 +34,9 @@ function buildBinaryTree(treeData) {
     ])
   );
 
-  // Link children
   byId.forEach((node) => {
-    if (node.leftChildId && byId.has(node.leftChildId)) {
-      node.left = byId.get(node.leftChildId);
-    }
-    if (node.rightChildId && byId.has(node.rightChildId)) {
-      node.right = byId.get(node.rightChildId);
-    }
+    if (node.leftChildId && byId.has(node.leftChildId)) node.left = byId.get(node.leftChildId);
+    if (node.rightChildId && byId.has(node.rightChildId)) node.right = byId.get(node.rightChildId);
   });
 
   const root =
@@ -44,78 +45,68 @@ function buildBinaryTree(treeData) {
   return root || null;
 }
 
-// Find "best" placement on a given side to keep tree shape balanced
-// (level-order / BFS insertion)
+// Find "best" placement on a given side (level-order / BFS insertion)
 function findBestPositionForSide(rootNode, side) {
   if (!rootNode) return null;
 
   if (side === "left") {
-    if (!rootNode.left) {
-      return { parentId: rootNode.id, side: "left" };
-    }
+    if (!rootNode.left) return { parentId: rootNode.id, side: "left" };
     const queue = [rootNode.left];
     while (queue.length) {
       const node = queue.shift();
-
       if (!node.left) return { parentId: node.id, side: "left" };
       if (!node.right) return { parentId: node.id, side: "right" };
-
-      if (node.left) queue.push(node.left);
-      if (node.right) queue.push(node.right);
-    }
-  } else if (side === "right") {
-    if (!rootNode.right) {
-      return { parentId: rootNode.id, side: "right" };
-    }
-    const queue = [rootNode.right];
-    while (queue.length) {
-      const node = queue.shift();
-
-      if (!node.left) return { parentId: node.id, side: "left" };
-      if (!node.right) return { parentId: node.id, side: "right" };
-
       if (node.left) queue.push(node.left);
       if (node.right) queue.push(node.right);
     }
   }
 
-  // No empty slot on that side
+  if (side === "right") {
+    if (!rootNode.right) return { parentId: rootNode.id, side: "right" };
+    const queue = [rootNode.right];
+    while (queue.length) {
+      const node = queue.shift();
+      if (!node.left) return { parentId: node.id, side: "left" };
+      if (!node.right) return { parentId: node.id, side: "right" };
+      if (node.left) queue.push(node.left);
+      if (node.right) queue.push(node.right);
+    }
+  }
+
   return null;
 }
 
-// Small placeholder for an empty child slot (clickable when placing a user)
 const EmptyChildSlot = ({ onClick, isSelected, canSelect, isHotPlacement }) => {
   let classes =
-    "rounded-xl border border-dashed px-3 py-2 text-[10px] min-w-[90px] text-center transition";
+    "rounded-xl border border-dashed px-3 py-2 text-[10px] min-w-[96px] text-center transition select-none";
 
-  if (canSelect) {
+  if (!canSelect) {
+    classes += " border-neutral-200 bg-neutral-50 text-neutral-400";
+  } else {
     if (isHotPlacement) {
       classes +=
-        " cursor-pointer border-amber-300 bg-amber-50/60 text-amber-700 hover:bg-amber-50 hover:border-amber-400";
+        " cursor-pointer border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100";
     } else {
       classes +=
-        " cursor-pointer border-sky-300 bg-sky-50/60 text-sky-700 hover:bg-sky-50 hover:border-sky-400";
+        " cursor-pointer border-prim/60 bg-prim/15 text-neutral-900 hover:bg-prim/25";
     }
-  } else {
-    classes += " border-slate-300 bg-slate-50 text-slate-400";
   }
 
   if (isSelected) {
     if (isHotPlacement) {
-      classes += " border-amber-500 bg-amber-100 shadow-sm";
+      classes += " border-amber-500 bg-amber-100 ring-2 ring-amber-200";
     } else {
-      classes += " border-sky-500 bg-sky-100 shadow-sm";
+      classes += " border-prim bg-prim/25 ring-2 ring-prim/30";
     }
   }
 
   return (
     <div className={classes} onClick={canSelect ? onClick : undefined}>
-      {canSelect ? "Place here" : "Empty"}
+      {canSelect ? "Place" : "Empty"}
     </div>
   );
 };
 
-// Recursive node component
 const TreeNode = ({
   node,
   depth = 0,
@@ -129,40 +120,49 @@ const TreeNode = ({
 
   const showLeft = !!node.left;
   const showRight = !!node.right;
-
-  // When placing a user, we want to show child slots
-  // even if this node currently has NO children.
   const hasChildren = showLeft || showRight || canSelectPosition;
 
   return (
     <div className="flex flex-col items-center">
-      {/* Node box */}
-      <div className="rounded-xl border border-slate-200 bg-sky-500 px-3 py-2 text-xs min-w-[120px] flex flex-col items-center shadow-sm">
-        <div className="flex items-center gap-1 mb-1">
-          <span className="h-2 w-2 rounded-full bg-emerald-400" />
-          <span className="font-medium text-slate-900 truncate max-w-[100px]">
-            {node.name || "User"}
-          </span>
+      {/* Node */}
+      <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white px-3 py-2 shadow-sm min-w-[132px]">
+        <div className="absolute inset-x-0 top-0 h-1 bg-prim" />
+        <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-prim/20 blur-2xl" />
+
+        <div className="flex items-center gap-2">
+          <div className="grid h-8 w-8 place-items-center rounded-xl bg-prim/20 ring-1 ring-prim/30">
+            <FiUsers className="h-4.5 w-4.5 text-neutral-900" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-neutral-900 truncate max-w-[92px]">
+              {node.name || "User"}
+            </div>
+            <div className="text-[10px] text-neutral-500">Self UV</div>
+          </div>
         </div>
-        <div className="text-[11px] text-slate-50">Self UV</div>
-        <div className="text-lg font-semibold text-slate-900">
-          {node.selfVolume ?? 0}
+
+        <div className="mt-1 flex items-end justify-between">
+          <div className="text-lg font-semibold text-neutral-900">
+            {node.selfVolume ?? 0}
+          </div>
+          <span className="inline-flex items-center rounded-full border border-prim/30 bg-prim/15 px-2 py-0.5 text-[10px] text-neutral-900">
+            <FiGitBranch className="mr-1 h-3 w-3" />
+            node
+          </span>
         </div>
       </div>
 
-      {/* Connectors and children */}
+      {/* Children */}
       {hasChildren && depth < maxDepth && (
         <>
-          {/* Vertical line from parent downwards */}
-          <div className="h-4 w-px bg-slate-300" />
+          <div className="h-4 w-px bg-neutral-300" />
 
-          {/* Children row */}
-          <div className="flex w-full items-start justify-between gap-4">
-            {/* Left child column */}
+          <div className="flex w-full items-start justify-between gap-5">
+            {/* Left */}
             <div className="flex-1 flex justify-center">
               {showLeft ? (
                 <div className="flex flex-col items-center">
-                  <div className="h-4 w-px bg-slate-300" />
+                  <div className="h-4 w-px bg-neutral-300" />
                   <TreeNode
                     node={node.left}
                     depth={depth + 1}
@@ -175,15 +175,15 @@ const TreeNode = ({
                 </div>
               ) : (
                 <div className="flex flex-col items-center">
-                  <div className="h-4 w-px bg-slate-300" />
+                  <div className="h-4 w-px bg-neutral-300" />
                   <EmptyChildSlot
                     canSelect={canSelectPosition}
+                    isHotPlacement={isHotPlacement}
                     isSelected={
                       !!selectedPosition &&
                       selectedPosition.parentId === node.id &&
                       selectedPosition.side === "left"
                     }
-                    isHotPlacement={isHotPlacement}
                     onClick={() =>
                       onSelectPosition &&
                       onSelectPosition({ parentId: node.id, side: "left" })
@@ -193,11 +193,11 @@ const TreeNode = ({
               )}
             </div>
 
-            {/* Right child column */}
+            {/* Right */}
             <div className="flex-1 flex justify-center">
               {showRight ? (
                 <div className="flex flex-col items-center">
-                  <div className="h-4 w-px bg-slate-300" />
+                  <div className="h-4 w-px bg-neutral-300" />
                   <TreeNode
                     node={node.right}
                     depth={depth + 1}
@@ -210,15 +210,15 @@ const TreeNode = ({
                 </div>
               ) : (
                 <div className="flex flex-col items-center">
-                  <div className="h-4 w-px bg-slate-300" />
+                  <div className="h-4 w-px bg-neutral-300" />
                   <EmptyChildSlot
                     canSelect={canSelectPosition}
+                    isHotPlacement={isHotPlacement}
                     isSelected={
                       !!selectedPosition &&
                       selectedPosition.parentId === node.id &&
                       selectedPosition.side === "right"
                     }
-                    isHotPlacement={isHotPlacement}
                     onClick={() =>
                       onSelectPosition &&
                       onSelectPosition({ parentId: node.id, side: "right" })
@@ -234,73 +234,62 @@ const TreeNode = ({
   );
 };
 
-// Simple side box component (top representation)
-const SideSummaryBox = ({
-  side,
-  nodes,
-  disabled,
-  onPlace,
-  isHotPlacement,
-}) => {
-  const title = side === "left" ? "Left side" : "Right side";
+const SideSummaryBox = ({ side, nodes, disabled, onPlace, isHotPlacement }) => {
+  const title = side === "left" ? "Left" : "Right";
   const nodeCount = nodes.length;
-  const totalUV = nodes.reduce(
-    (sum, n) => sum + (n.selfVolume ?? 0),
-    0
-  );
+  const totalUV = nodes.reduce((sum, n) => sum + (n.selfVolume ?? 0), 0);
 
-  const placeButtonClasses = (() => {
-    let base =
-      "mt-2 w-full rounded-lg px-2 py-1.5 text-[11px] font-medium transition ";
-    if (disabled) {
-      return base + "bg-slate-200 text-slate-500 cursor-not-allowed";
-    }
-    if (isHotPlacement) {
-      return base + "bg-amber-500 text-white hover:bg-amber-600";
-    }
-    return base + "bg-sky-500 text-white hover:bg-sky-600";
+  const buttonClasses = (() => {
+    const base =
+      "mt-3 w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition focus:outline-none focus:ring-2 ";
+    if (disabled) return base + "bg-neutral-200 text-neutral-500 cursor-not-allowed";
+    if (isHotPlacement) return base + "bg-amber-500 text-white hover:bg-amber-600 focus:ring-amber-200";
+    return base + "bg-prim text-neutral-900 hover:opacity-95 focus:ring-prim/40";
   })();
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-      <div className="flex items-center justify-between mb-1">
-        <div className="font-semibold text-slate-900 text-sm">
-          {title}
+    <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+      <div className="absolute inset-x-0 top-0 h-1 bg-prim" />
+      <div className="pointer-events-none absolute -right-12 -top-10 h-28 w-28 rounded-full bg-prim/18 blur-2xl" />
+
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+            Side
+          </div>
+          <div className="mt-0.5 text-sm font-semibold text-neutral-900">
+            {title}
+          </div>
         </div>
-        <div className="text-[10px] text-slate-500">
-          {nodeCount} users · UV {totalUV}
+
+        <div className="text-right">
+          <div className="text-[11px] text-neutral-500">
+            {nodeCount} users
+          </div>
+          <div className="text-xs font-semibold text-neutral-900">UV {totalUV}</div>
         </div>
       </div>
-      <div className="mt-1 max-h-32 overflow-auto rounded border border-slate-100 bg-white/70 px-2 py-1">
+
+      <div className="mt-3 max-h-32 overflow-auto rounded-xl border border-neutral-200 bg-neutral-50 px-2 py-2">
         {nodes.length === 0 ? (
-          <div className="text-[11px] text-slate-400">
-            No users on this side yet.
-          </div>
+          <div className="text-[11px] text-neutral-500">No users yet.</div>
         ) : (
-          <ul className="space-y-0.5">
+          <ul className="space-y-1">
             {nodes.map((n) => (
-              <li
-                key={n.id}
-                className="flex items-center justify-between text-[11px]"
-              >
-                <span className="truncate max-w-[100px]">
+              <li key={n.id} className="flex items-center justify-between text-[11px]">
+                <span className="truncate max-w-[140px] text-neutral-900">
                   {n.name || "User"}
                 </span>
-                <span className="text-[10px] text-slate-500">
-                  UV {n.selfVolume ?? 0}
-                </span>
+                <span className="text-neutral-600">UV {n.selfVolume ?? 0}</span>
               </li>
             ))}
           </ul>
         )}
       </div>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onPlace}
-        className={placeButtonClasses}
-      >
-        {disabled ? "Select a user first" : `Place on ${title}`}
+
+      <button type="button" disabled={disabled} onClick={onPlace} className={buttonClasses}>
+        {side === "left" ? <FiArrowLeft className="h-4 w-4" /> : <FiArrowRight className="h-4 w-4" />}
+        {disabled ? "Select a user" : `Auto place ${title}`}
       </button>
     </div>
   );
@@ -311,37 +300,31 @@ const ReferralTree = () => {
   const [treeError, setTreeError] = useState("");
   const [treeData, setTreeData] = useState(null);
 
-  // Referral requests (users waiting to be placed)
   const [referralRequests, setReferralRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState("");
 
-  // Hot position threshold from universal settings
+  // Hot position threshold from settings
   const [hotMinUV, setHotMinUV] = useState(2);
 
   // Placement UI state
   const [selectedPlacementUser, setSelectedPlacementUser] = useState(null);
-  const [selectedPlacementSource, setSelectedPlacementSource] = useState(null); // "regular" | "hot" | null
+  const [selectedPlacementSource, setSelectedPlacementSource] = useState(null); // "regular" | "hot" | "pending" | null
   const [selectedPosition, setSelectedPosition] = useState(null); // { parentId, side }
 
   const [placementLoading, setPlacementLoading] = useState(false);
   const [placementError, setPlacementError] = useState("");
   const [placementSuccess, setPlacementSuccess] = useState("");
 
-  // Helpers to fetch tree & requests
   const fetchTree = async (headers) => {
     try {
       setTreeLoading(true);
       setTreeError("");
-      const res = await axios.get(`${API_BASE_URL}/referrals/tree`, {
-        headers,
-      });
+      const res = await axios.get(`${API_BASE_URL}/referrals/tree`, { headers });
       setTreeData(res.data);
     } catch (err) {
       console.error(err);
-      const message =
-        err.response?.data?.message || "Failed to load referral tree.";
-      setTreeError(message);
+      setTreeError(err.response?.data?.message || "Failed to load referrals.");
     } finally {
       setTreeLoading(false);
     }
@@ -351,25 +334,18 @@ const ReferralTree = () => {
     try {
       setRequestsLoading(true);
       setRequestsError("");
-      const res = await axios.get(`${API_BASE_URL}/users/requests`, {
-        headers,
-      });
-
-      // Allow both {requests: [...]} and plain array
+      const res = await axios.get(`${API_BASE_URL}/users/requests`, { headers });
       const data = res.data;
       const requests = Array.isArray(data) ? data : data.requests || [];
       setReferralRequests(requests);
     } catch (err) {
       console.error(err);
-      const message =
-        err.response?.data?.message || "Failed to load referral requests.";
-      setRequestsError(message);
+      setRequestsError(err.response?.data?.message || "Failed to load pending users.");
     } finally {
       setRequestsLoading(false);
     }
   };
 
-  // Initial fetch
   useEffect(() => {
     const init = async () => {
       const token = localStorage.getItem("token");
@@ -382,38 +358,27 @@ const ReferralTree = () => {
       const headers = { Authorization: `Bearer ${token}` };
       await Promise.all([fetchTree(headers), fetchRequests(headers)]);
     };
-
     init();
   }, []);
 
-  // Fetch hot position min UV from universal settings
   useEffect(() => {
     const fetchHotMinUV = async () => {
       try {
-        const res = await axios.get(
-          `${API_BASE_URL}/settings/hotposition_min_uv`
-        );
-        const value = res.data?.value;
-        const numeric = Number(value);
-        if (!Number.isNaN(numeric) && numeric > 0) {
-          setHotMinUV(numeric);
-        }
+        const res = await axios.get(`${API_BASE_URL}/settings/hotposition_min_uv`);
+        const numeric = Number(res.data?.value);
+        if (!Number.isNaN(numeric) && numeric > 0) setHotMinUV(numeric);
       } catch (err) {
         console.error("Failed to fetch hotposition_min_uv:", err);
-        // Keep default 2 if request fails
       }
     };
-
     fetchHotMinUV();
   }, []);
 
   const rootNode = useMemo(() => buildBinaryTree(treeData), [treeData]);
 
-  // Collect all nodes on left and right side (simple representation)
   const { leftSideNodes, rightSideNodes } = useMemo(() => {
     const left = [];
     const right = [];
-
     if (!rootNode) return { leftSideNodes: left, rightSideNodes: right };
 
     const traverse = (start, arr) => {
@@ -433,44 +398,43 @@ const ReferralTree = () => {
     return { leftSideNodes: left, rightSideNodes: right };
   }, [rootNode]);
 
-  // Split into regular referrals and hot positions
-  // - Regular: referralActive === true
-  // - Hot position: selfVolume >= hotMinUV
-  // If both are true, user appears in both lists.
-  const { regularRequests, hotPositionRequests } = useMemo(() => {
+  // ✅ NEW LOGIC:
+  // - If referralActive is true -> NOT hot (ever)
+  // - Hot only if (referralActive is false) AND (selfVolume >= hotMinUV)
+  // - Everything else goes into "Pending"
+  const { regularRequests, hotPositionRequests, pendingRequests } = useMemo(() => {
     const regular = [];
     const hot = [];
+    const pending = [];
 
     for (const user of referralRequests || []) {
       const selfUV = user.selfVolume ?? 0;
 
       if (user.referralActive) {
         regular.push(user);
+        continue;
       }
-      if (selfUV >= hotMinUV) {
+
+      if (!user.referralActive && selfUV >= hotMinUV) {
         hot.push(user);
+        continue;
       }
+
+      pending.push(user);
     }
 
-    return { regularRequests: regular, hotPositionRequests: hot };
+    return { regularRequests: regular, hotPositionRequests: hot, pendingRequests: pending };
   }, [referralRequests, hotMinUV]);
 
-  // Parent node data for the currently selected position
   const selectedParentNode = useMemo(() => {
     if (!selectedPosition || !treeData?.nodes) return null;
-    return (
-      treeData.nodes.find((n) => n.id === selectedPosition.parentId) || null
-    );
+    return treeData.nodes.find((n) => n.id === selectedPosition.parentId) || null;
   }, [selectedPosition, treeData]);
 
-  // Handlers
   const handleSelectPlacementUser = (user, source) => {
     const id = user._id || user.id;
-    const selectedId =
-      selectedPlacementUser &&
-      (selectedPlacementUser._id || selectedPlacementUser.id);
+    const selectedId = selectedPlacementUser && (selectedPlacementUser._id || selectedPlacementUser.id);
 
-    // Toggle: click again in same source to deselect
     if (selectedId === id && selectedPlacementSource === source) {
       setSelectedPlacementUser(null);
       setSelectedPlacementSource(null);
@@ -488,7 +452,7 @@ const ReferralTree = () => {
   };
 
   const handleSelectTreePosition = ({ parentId, side }) => {
-    if (!selectedPlacementUser) return; // don't allow selecting without a user
+    if (!selectedPlacementUser) return;
     setSelectedPosition({ parentId, side });
     setPlacementError("");
     setPlacementSuccess("");
@@ -498,7 +462,7 @@ const ReferralTree = () => {
     if (!selectedPlacementUser || !rootNode) return;
     const best = findBestPositionForSide(rootNode, side);
     if (!best) {
-      setPlacementError(`No free slot available on the ${side} side.`);
+      setPlacementError(`No free slot on ${side}.`);
       setPlacementSuccess("");
       return;
     }
@@ -537,53 +501,52 @@ const ReferralTree = () => {
         { headers }
       );
 
-      const message =
-        res.data?.message ||
-        "User placed successfully in the referral tree.";
-      setPlacementSuccess(message);
+      setPlacementSuccess(res.data?.message || "Placed successfully.");
 
-      // Refresh tree and requests
       await Promise.all([fetchTree(headers), fetchRequests(headers)]);
 
-      // Clear selection
       setSelectedPlacementUser(null);
       setSelectedPlacementSource(null);
       setSelectedPosition(null);
     } catch (err) {
       console.error(err);
-      const message =
-        err.response?.data?.message || "Failed to save placement.";
-      setPlacementError(message);
+      setPlacementError(err.response?.data?.message || "Failed to save placement.");
     } finally {
       setPlacementLoading(false);
     }
   };
 
-  const isHotPlacementMode =
-    !!selectedPlacementUser && selectedPlacementSource === "hot";
+  const isHotPlacementMode = !!selectedPlacementUser && selectedPlacementSource === "hot";
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6">
-      <div className="flex items-center justify-between mb-3">
+    <section className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+      <div className="absolute inset-x-0 top-0 h-1.5 bg-prim" />
+      <div className="pointer-events-none absolute -right-24 -top-28 h-64 w-64 rounded-full bg-prim/18 blur-3xl" />
+      <div className="pointer-events-none absolute -left-24 -bottom-28 h-64 w-64 rounded-full bg-prim/12 blur-3xl" />
+
+      <div className="relative flex items-start justify-between gap-4 mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">
-            Referral tree
+          <h2 className="text-lg font-semibold text-neutral-900 flex items-center gap-2">
+            <FiGitBranch className="h-5 w-5 text-neutral-900" />
+            Referrals
           </h2>
-          <p className="text-xs text-slate-500">
-            View your binary tree and place pending referrals.
+          <p className="mt-1 text-xs text-neutral-600">
+            Pick a user, then choose a spot in the tree.
           </p>
         </div>
+
         {treeData && (
-          <div className="text-[11px] text-slate-500 text-right">
+          <div className="text-[11px] text-neutral-600 text-right">
             <div>
               Nodes:{" "}
-              <span className="text-slate-900 font-medium">
+              <span className="text-neutral-900 font-semibold">
                 {treeData.totalNodes}
               </span>
             </div>
             {treeData.truncated && (
-              <div className="mt-1 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 border border-amber-200">
-                Tree truncated at {treeData.maxNodes} nodes
+              <div className="mt-1 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
+                <FiAlertTriangle className="h-3 w-3" />
+                Truncated at {treeData.maxNodes}
               </div>
             )}
           </div>
@@ -592,20 +555,20 @@ const ReferralTree = () => {
 
       {treeLoading ? (
         <div className="flex justify-center py-10">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" />
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-neutral-200 border-t-prim" />
         </div>
       ) : treeError ? (
-        <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800">
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {treeError}
         </div>
       ) : !rootNode ? (
-        <div className="py-8 text-center text-sm text-slate-500">
-          No referral tree data is available yet.
+        <div className="py-10 text-center text-sm text-neutral-600">
+          No referral data yet.
         </div>
       ) : (
         <>
-          {/* Simple left/right side summary with auto-placement */}
-          <div className="mb-4 grid gap-4 md:grid-cols-2">
+          {/* Side summary */}
+          <div className="mb-5 grid gap-4 md:grid-cols-2">
             <SideSummaryBox
               side="left"
               nodes={leftSideNodes}
@@ -622,11 +585,10 @@ const ReferralTree = () => {
             />
           </div>
 
-          {/* Tree + side panel */}
-          <div className="mt-4 flex flex-col gap-6 lg:flex-row">
+          <div className="flex flex-col gap-6 lg:flex-row">
             {/* Tree */}
-            <div className="flex-1 max-h-[32rem] overflow-auto rounded-xl border border-slate-100">
-              <div className="min-w-[320px] flex justify-center py-4">
+            <div className="flex-1 max-h-[32rem] overflow-auto rounded-2xl border border-neutral-200 bg-neutral-50">
+              <div className="min-w-[340px] flex justify-center py-5">
                 <TreeNode
                   node={rootNode}
                   onSelectPosition={handleSelectTreePosition}
@@ -637,68 +599,68 @@ const ReferralTree = () => {
               </div>
             </div>
 
-            {/* Placement side panel */}
-            <div className="w-full lg:w-72 flex-shrink-0">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    Pending referrals
+            {/* Right panel */}
+            <div className="w-full lg:w-80 flex-shrink-0">
+              <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-neutral-900 flex items-center gap-2">
+                    <FiUsers className="h-4.5 w-4.5" />
+                    Pending
                   </h3>
                   {requestsLoading && (
-                    <span className="text-[10px] text-slate-500">Loading…</span>
+                    <span className="text-[10px] text-neutral-500">Loading…</span>
                   )}
                 </div>
 
                 {requestsError && (
-                  <div className="mb-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                  <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
                     {requestsError}
                   </div>
                 )}
 
-                {!requestsLoading &&
-                  !requestsError &&
-                  referralRequests.length === 0 && (
-                    <div className="text-[11px] text-slate-500">
-                      No users waiting for placement.
-                    </div>
-                  )}
+                {!requestsLoading && !requestsError && referralRequests.length === 0 && (
+                  <div className="text-[11px] text-neutral-600">
+                    No users waiting.
+                  </div>
+                )}
 
-                {/* Regular referrals */}
+                {/* Regular */}
                 {regularRequests.length > 0 && (
                   <div className="mt-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Regular
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-600">
+                        Referrals
+                      </div>
+                      <span className="text-[10px] text-neutral-500">
+                        {regularRequests.length}
+                      </span>
                     </div>
-                    <div className="mt-1 space-y-1.5">
+
+                    <div className="space-y-2">
                       {regularRequests.map((user) => {
                         const id = user._id || user.id;
                         const selectedId =
-                          selectedPlacementUser &&
-                          (selectedPlacementUser._id ||
-                            selectedPlacementUser.id);
-                        const isSelected =
-                          selectedId === id &&
-                          selectedPlacementSource === "regular";
+                          selectedPlacementUser && (selectedPlacementUser._id || selectedPlacementUser.id);
+                        const isSelected = selectedId === id && selectedPlacementSource === "regular";
 
                         return (
                           <button
                             key={id}
                             type="button"
-                            onClick={() =>
-                              handleSelectPlacementUser(user, "regular")
-                            }
-                            className={`w-full rounded-lg border px-2 py-1.5 text-left text-[11px] transition ${
+                            onClick={() => handleSelectPlacementUser(user, "regular")}
+                            className={[
+                              "w-full rounded-xl border px-3 py-2 text-left text-[11px] transition",
                               isSelected
-                                ? "border-sky-500 bg-white shadow-sm"
-                                : "border-slate-200 bg-white/70 hover:border-sky-300 hover:bg-white"
-                            }`}
+                                ? "border-prim bg-prim/15 ring-2 ring-prim/30"
+                                : "border-neutral-200 bg-neutral-50 hover:border-prim/60 hover:bg-prim/10",
+                            ].join(" ")}
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium text-slate-900 truncate">
+                              <span className="font-semibold text-neutral-900 truncate">
                                 {user.name || "User"}
                               </span>
-                              <span className="text-[10px] text-slate-500">
-                                UV: {user.selfVolume ?? 0}
+                              <span className="text-[10px] text-neutral-600">
+                                UV {user.selfVolume ?? 0}
                               </span>
                             </div>
                           </button>
@@ -708,41 +670,44 @@ const ReferralTree = () => {
                   </div>
                 )}
 
-                {/* Hot positions */}
+                {/* Hot */}
                 {hotPositionRequests.length > 0 && (
-                  <div className="mt-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                      Hot positions ({hotMinUV}+ UV)
+                  <div className="mt-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-800 flex items-center gap-1">
+                        <FiZap className="h-3.5 w-3.5" />
+                        Hot ({hotMinUV}+ UV)
+                      </div>
+                      <span className="text-[10px] text-amber-800">
+                        {hotPositionRequests.length}
+                      </span>
                     </div>
-                    <div className="mt-1 space-y-1.5">
+
+                    <div className="space-y-2">
                       {hotPositionRequests.map((user) => {
                         const id = user._id || user.id;
                         const selectedId =
-                          selectedPlacementUser &&
-                          (selectedPlacementUser._id ||
-                            selectedPlacementUser.id);
-                        const isSelected =
-                          selectedId === id && selectedPlacementSource === "hot";
+                          selectedPlacementUser && (selectedPlacementUser._id || selectedPlacementUser.id);
+                        const isSelected = selectedId === id && selectedPlacementSource === "hot";
 
                         return (
                           <button
                             key={id}
                             type="button"
-                            onClick={() =>
-                              handleSelectPlacementUser(user, "hot")
-                            }
-                            className={`w-full rounded-lg border px-2 py-1.5 text-left text-[11px] transition ${
+                            onClick={() => handleSelectPlacementUser(user, "hot")}
+                            className={[
+                              "w-full rounded-xl border px-3 py-2 text-left text-[11px] transition",
                               isSelected
-                                ? "border-amber-500 bg-white shadow-sm"
-                                : "border-amber-200 bg-amber-50/70 hover:border-amber-400 hover:bg-amber-50"
-                            }`}
+                                ? "border-amber-500 bg-amber-100 ring-2 ring-amber-200"
+                                : "border-amber-200 bg-amber-50 hover:border-amber-400 hover:bg-amber-100/70",
+                            ].join(" ")}
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium text-amber-900 truncate">
+                              <span className="font-semibold text-amber-900 truncate">
                                 {user.name || "User"}
                               </span>
-                              <span className="text-[10px] text-amber-700">
-                                UV: {user.selfVolume ?? 0}
+                              <span className="text-[10px] text-amber-800">
+                                UV {user.selfVolume ?? 0}
                               </span>
                             </div>
                           </button>
@@ -752,48 +717,97 @@ const ReferralTree = () => {
                   </div>
                 )}
 
-                {/* Placement summary + save */}
-                {selectedPlacementUser && (
-                  <div className="mt-3 border-t border-slate-200 pt-2">
-                    <div className="text-[11px] text-slate-600">
-                      Selected:{" "}
-                      <span className="font-medium text-slate-900">
-                        {selectedPlacementUser.name}
-                      </span>{" "}
-                      <span className="text-[10px] text-slate-400">
-                        (
-                        {selectedPlacementSource === "hot"
-                          ? "Hot"
-                          : "Regular"}
-                        )
+                {/* Pending (not active + not hot) */}
+                {pendingRequests.length > 0 && (
+                  <div className="mt-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-600 flex items-center gap-1">
+                        <FiInfo className="h-3.5 w-3.5" />
+                        Waiting
+                      </div>
+                      <span className="text-[10px] text-neutral-500">
+                        {pendingRequests.length}
                       </span>
                     </div>
-                    <div className="mt-1 text-[10px] text-slate-500">
+
+                    <div className="space-y-2">
+                      {pendingRequests.map((user) => {
+                        const id = user._id || user.id;
+                        const selectedId =
+                          selectedPlacementUser && (selectedPlacementUser._id || selectedPlacementUser.id);
+                        const isSelected = selectedId === id && selectedPlacementSource === "pending";
+
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => handleSelectPlacementUser(user, "pending")}
+                            className={[
+                              "w-full rounded-xl border px-3 py-2 text-left text-[11px] transition",
+                              isSelected
+                                ? "border-prim bg-prim/15 ring-2 ring-prim/30"
+                                : "border-neutral-200 bg-neutral-50 hover:border-prim/60 hover:bg-prim/10",
+                            ].join(" ")}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-neutral-900 truncate">
+                                {user.name || "User"}
+                              </span>
+                              <span className="text-[10px] text-neutral-600">
+                                UV {user.selfVolume ?? 0}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Selection + save */}
+                {selectedPlacementUser ? (
+                  <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] text-neutral-700">
+                        Selected:{" "}
+                        <span className="font-semibold text-neutral-900">
+                          {selectedPlacementUser.name || "User"}
+                        </span>
+                      </div>
+                      {selectedPlacementSource === "hot" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
+                          <FiZap className="h-3 w-3" /> Hot
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-prim/40 bg-prim/15 px-2 py-0.5 text-[10px] text-neutral-900">
+                          <FiTarget className="h-3 w-3" /> Place
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-2 text-[10px] text-neutral-600">
                       {selectedPosition ? (
                         <>
                           Under{" "}
-                          <span className="font-medium text-slate-800">
-                            {selectedParentNode?.name ||
-                              selectedPosition.parentId}
+                          <span className="font-semibold text-neutral-900">
+                            {selectedParentNode?.name || selectedPosition.parentId}
                           </span>{" "}
-                          –{" "}
-                          <span className="font-medium text-slate-800">
+                          ·{" "}
+                          <span className="font-semibold text-neutral-900">
                             {selectedPosition.side}
-                          </span>{" "}
-                          side
+                          </span>
                         </>
                       ) : (
-                        "Choose a side above or click an empty slot in the tree."
+                        "Choose Left/Right above or click an empty slot."
                       )}
                     </div>
 
                     {placementError && (
-                      <div className="mt-1 text-[11px] text-red-600">
-                        {placementError}
-                      </div>
+                      <div className="mt-2 text-[11px] text-red-600">{placementError}</div>
                     )}
                     {placementSuccess && (
-                      <div className="mt-1 text-[11px] text-emerald-600">
+                      <div className="mt-2 inline-flex items-center gap-1 text-[11px] text-emerald-700">
+                        <FiCheckCircle className="h-4 w-4" />
                         {placementSuccess}
                       </div>
                     )}
@@ -802,22 +816,23 @@ const ReferralTree = () => {
                       type="button"
                       disabled={!selectedPosition || placementLoading}
                       onClick={handleSavePlacement}
-                      className={`mt-2 w-full rounded-lg px-2 py-1.5 text-[11px] font-medium ${
+                      className={[
+                        "mt-3 w-full inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold transition focus:outline-none focus:ring-2",
                         !selectedPosition || placementLoading
-                          ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                          : "bg-sky-500 text-white hover:bg-sky-600"
-                      }`}
+                          ? "bg-neutral-200 text-neutral-500 cursor-not-allowed"
+                          : isHotPlacementMode
+                          ? "bg-amber-500 text-white hover:bg-amber-600 focus:ring-amber-200"
+                          : "bg-prim text-neutral-900 hover:opacity-95 focus:ring-prim/40",
+                      ].join(" ")}
                     >
-                      {placementLoading ? "Saving..." : "Save placement"}
+                      {placementLoading ? "Saving..." : "Save"}
                     </button>
                   </div>
-                )}
-
-                {!selectedPlacementUser && referralRequests.length > 0 && (
-                  <div className="mt-3 border-t border-slate-200 pt-2 text-[10px] text-slate-500">
-                    1) Pick a user. 2) Use left/right boxes or click a slot in the tree.
+                ) : referralRequests.length > 0 ? (
+                  <div className="mt-4 text-[10px] text-neutral-600">
+                    Pick a user, then pick a spot.
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           </div>

@@ -1,7 +1,19 @@
 // src/components/TopMetrics.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import { FiCopy, FiCheck } from "react-icons/fi";
+import {
+  FiCopy,
+  FiCheck,
+  FiTrendingUp,
+  FiGrid,
+  FiDollarSign,
+  FiCreditCard,
+  FiArrowLeft,
+  FiArrowRight,
+  FiUsers,
+  FiGift,
+  FiLink,
+} from "react-icons/fi";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -12,6 +24,58 @@ const calculateTreeChecks = (left, right) => {
   const rightPairs = Math.floor(right / 2);
   return Math.min(leftPairs, rightPairs);
 };
+
+function MetricCard({ label, value, sub, Icon, highlight = false }) {
+  return (
+    <div
+      className={[
+        "relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition",
+        "hover:shadow-md",
+        "border-t-4 border-t-prim", // <-- makes prim VERY visible
+        highlight ? "ring-2 ring-prim/30" : "ring-0", // <-- highlight without changing border color
+      ].join(" ")}
+    >
+      {/* subtle prim glow */}
+      <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-prim/20 blur-3xl" />
+
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+            {label}
+          </div>
+          <div className="mt-1 text-2xl font-semibold text-neutral-900">
+            {value}
+          </div>
+        </div>
+
+        <div className="grid h-10 w-10 place-items-center rounded-xl bg-prim/20 ring-1 ring-prim/30">
+          <Icon className="h-5 w-5 text-prim" />
+        </div>
+      </div>
+
+      {sub ? <p className="mt-2 text-xs text-neutral-600">{sub}</p> : null}
+    </div>
+  );
+}
+
+function Pill({ children, tone = "neutral" }) {
+  const tones = {
+    neutral: "border-neutral-200 bg-neutral-50 text-neutral-700",
+    prim: "border-prim/40 bg-prim/20 text-neutral-900",
+    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    danger: "border-red-200 bg-red-50 text-red-700",
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs ${
+        tones[tone] || tones.neutral
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
 
 const TopMetrics = () => {
   const [loading, setLoading] = useState(true);
@@ -26,7 +90,6 @@ const TopMetrics = () => {
   const [referralCodeInput, setReferralCodeInput] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // referralActive_limit from universal settings
   const [referralUvThreshold, setReferralUvThreshold] = useState(5);
 
   const [userInfo, setUserInfo] = useState({
@@ -38,13 +101,23 @@ const TopMetrics = () => {
     walletBalance: 0,
     leftVolume: 0,
     rightVolume: 0,
-    referredBy: null, // placement parent in tree
-    referralUsed: null, // sponsor (whose code was used)
+    referredBy: null,
+    referralUsed: null,
     referralCode: null,
     referralActive: false,
     star: 1,
     at_hotposition: false,
   });
+
+  const inputClass = useMemo(
+    () =>
+      [
+        "w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm text-neutral-900",
+        "placeholder:text-neutral-400 shadow-sm",
+        "focus:outline-none focus:ring-2 focus:ring-prim/40 focus:border-prim",
+      ].join(" "),
+    []
+  );
 
   const fetchUserInfo = async () => {
     try {
@@ -59,13 +132,10 @@ const TopMetrics = () => {
       }
 
       const res = await axios.get(`${API_BASE_URL}/users/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       const user = res.data || {};
-
       setUserInfo({
         name: user.name || "",
         email: user.email || "",
@@ -75,8 +145,8 @@ const TopMetrics = () => {
         walletBalance: user.walletBalance ?? 0,
         rightVolume: user.rightVolume ?? 0,
         leftVolume: user.leftVolume ?? 0,
-        referredBy: user.referredBy || null, // placement parent
-        referralUsed: user.referralUsed || null, // sponsor
+        referredBy: user.referredBy || null,
+        referralUsed: user.referralUsed || null,
         referralCode: user.referralCode || null,
         referralActive: user.referralActive || false,
         star: user.star ?? 1,
@@ -84,9 +154,7 @@ const TopMetrics = () => {
       });
     } catch (err) {
       console.error(err);
-      const message =
-        err.response?.data?.message || "Failed to load user metrics.";
-      setError(message);
+      setError(err.response?.data?.message || "Failed to load user metrics.");
     } finally {
       setLoading(false);
     }
@@ -96,24 +164,18 @@ const TopMetrics = () => {
     fetchUserInfo();
   }, []);
 
-  // Fetch referralActive_limit from universal settings
   useEffect(() => {
     const fetchReferralThreshold = async () => {
       try {
         const res = await axios.get(
           `${API_BASE_URL}/settings/referralActive_limit`
         );
-        const value = res.data?.value;
-        const numeric = Number(value);
-        if (!Number.isNaN(numeric) && numeric > 0) {
-          setReferralUvThreshold(numeric);
-        }
+        const numeric = Number(res.data?.value);
+        if (!Number.isNaN(numeric) && numeric > 0) setReferralUvThreshold(numeric);
       } catch (err) {
         console.error("Failed to fetch referralActive_limit:", err);
-        // keep default 5 if this fails
       }
     };
-
     fetchReferralThreshold();
   }, []);
 
@@ -140,23 +202,15 @@ const TopMetrics = () => {
       const res = await axios.post(
         `${API_BASE_URL}/users/use-code`,
         { referralCode: trimmed },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      const message =
-        res.data?.message || "Referral code applied successfully.";
-      setApplySuccess(message);
+      setApplySuccess(res.data?.message || "Referral code applied successfully.");
       setReferralCodeInput("");
-      await fetchUserInfo(); // refresh referralUsed / referredBy
+      await fetchUserInfo();
     } catch (err) {
       console.error(err);
-      const message =
-        err.response?.data?.message || "Failed to apply referral code.";
-      setApplyError(message);
+      setApplyError(err.response?.data?.message || "Failed to apply referral code.");
     } finally {
       setApplyLoading(false);
     }
@@ -178,20 +232,14 @@ const TopMetrics = () => {
       await axios.post(
         `${API_BASE_URL}/users/join-referral-program`,
         {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       setJoinSuccess("You have joined the referral program!");
-      await fetchUserInfo(); // refresh referralActive & referralCode
+      await fetchUserInfo();
     } catch (err) {
       console.error(err);
-      const message =
-        err.response?.data?.message || "Failed to join referral program.";
-      setJoinError(message);
+      setJoinError(err.response?.data?.message || "Failed to join referral program.");
     } finally {
       setJoinLoading(false);
     }
@@ -210,9 +258,12 @@ const TopMetrics = () => {
 
   if (loading) {
     return (
-      <section className="grid gap-4 md:grid-cols-3 mb-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 flex items-center justify-center col-span-3">
-          <div className="h-6 w-6 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" />
+      <section className="mb-6">
+        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="h-6 w-6 animate-spin rounded-full border-4 border-neutral-200 border-t-prim" />
+            <p className="text-sm text-neutral-600">Loading your metrics…</p>
+          </div>
         </div>
       </section>
     );
@@ -221,7 +272,7 @@ const TopMetrics = () => {
   if (error) {
     return (
       <section className="mb-6">
-        <div className="rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}
         </div>
       </section>
@@ -240,259 +291,255 @@ const TopMetrics = () => {
     referralUsed,
   } = userInfo;
 
-  const canJoinProgram =
-    selfVolume >= referralUvThreshold && !referralActive;
+  const canJoinProgram = selfVolume >= referralUvThreshold && !referralActive;
 
   const checks =
     calculateSelfCheck(selfVolume) + calculateTreeChecks(leftVolume, rightVolume);
 
-  const sponsor = referralUsed || null; // sponsor = user whose code we used
+  const sponsor = referralUsed || null;
+
+  const joinProgress = Math.min(
+    1,
+    referralUvThreshold > 0
+      ? Number(selfVolume || 0) / Number(referralUvThreshold)
+      : 0
+  );
 
   return (
     <>
-      {/* Metrics cards */}
+      {/* Metrics */}
       <section className="grid gap-4 md:grid-cols-3 mb-4">
-        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-50">
-              Self UV
-            </span>
-          </div>
-          <div className="text-2xl font-semibold text-slate-900">
-            {selfVolume}
-          </div>
-          <p className="mt-1 text-xs text-slate-50">
-            Your personal volume on phone-phixer.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-50">
-              Available Checks
-            </span>
-          </div>
-          <div className="text-2xl font-semibold text-slate-900">
-            {checks}
-          </div>
-          <p className="mt-1 text-xs text-slate-50">
-            Checks you can currently redeem or request.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-50">
-              Total Earnings
-            </span>
-          </div>
-          <div className="text-2xl font-semibold text-slate-900">
-            &#8377;{Number(totalEarnings || 0).toFixed(2)}
-          </div>
-          <p className="mt-1 text-xs text-slate-50">
-            Lifetime earnings from your repairs and referrals.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-50">
-              Left UV
-            </span>
-          </div>
-          <div className="text-2xl font-semibold text-slate-900">
-            {Number(leftVolume || 0).toFixed(0)}
-          </div>
-          <p className="mt-1 text-xs text-slate-50">
-            Current UV on the left side of your tree.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-50">
-              Right UV
-            </span>
-          </div>
-          <div className="text-2xl font-semibold text-slate-900">
-            {Number(rightVolume || 0).toFixed(0)}
-          </div>
-          <p className="mt-1 text-xs text-slate-50">
-            Current UV on the right side of your tree.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-sky-500 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs uppercase tracking-wide text-slate-50">
-              Wallet Balance
-            </span>
-          </div>
-          <div className="text-2xl font-semibold text-slate-900">
-            &#8377;{Number(walletBalance || 0).toFixed(2)}
-          </div>
-          <p className="mt-1 text-xs text-slate-50">Current wallet balance.</p>
-        </div>
+        <MetricCard
+          label="Self UV"
+          value={Number(selfVolume || 0).toFixed(0)}
+          sub="Your personal volume on phone-phixer."
+          Icon={FiTrendingUp}
+          highlight
+        />
+        <MetricCard
+          label="Available Checks"
+          value={Number(checks || 0).toFixed(0)}
+          sub="Checks you can currently redeem or request."
+          Icon={FiGrid}
+        />
+        <MetricCard
+          label="Total Earnings"
+          value={`₹${Number(totalEarnings || 0).toFixed(2)}`}
+          sub="Lifetime earnings from repairs and referrals."
+          Icon={FiDollarSign}
+        />
+        <MetricCard
+          label="Left UV"
+          value={Number(leftVolume || 0).toFixed(0)}
+          sub="Current UV on the left side of your tree."
+          Icon={FiArrowLeft}
+        />
+        <MetricCard
+          label="Right UV"
+          value={Number(rightVolume || 0).toFixed(0)}
+          sub="Current UV on the right side of your tree."
+          Icon={FiArrowRight}
+        />
+        <MetricCard
+          label="Wallet Balance"
+          value={`₹${Number(walletBalance || 0).toFixed(2)}`}
+          sub="Current wallet balance."
+          Icon={FiCreditCard}
+        />
       </section>
 
-      {/* Referral program + sponsor / placement info */}
+      {/* Referral + Sponsor/Placement */}
       <section className="mb-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4">
-          {/* Referral program / Your referral code */}
-          <div>
-            <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">
-              Referral program
-            </div>
+        <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-5">
+          {/* Strong prim accent bar */}
+          <div className="absolute inset-x-0 top-0 h-1.5 bg-prim" />
 
-            {referralActive && referralCode ? (
+          <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-prim/20 blur-3xl" />
+          <div className="pointer-events-none absolute -left-20 -bottom-24 h-56 w-56 rounded-full bg-prim/15 blur-3xl" />
+
+          {/* Referral header */}
+          <div className="relative flex items-start justify-between gap-4 pt-2">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-prim/20 ring-1 ring-prim/30">
+                <FiGift className="h-5 w-5 text-prim" />
+              </div>
               <div>
-                <p className="text-xs text-slate-500 mb-2">
-                  You are in the referral program. Share your code:
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-900">
-                    {referralCode}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleCopyReferral}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition"
-                  >
-                    {copied ? (
-                      <>
-                        <FiCheck className="h-3.5 w-3.5" />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <FiCopy className="h-3.5 w-3.5" />
-                        Copy
-                      </>
-                    )}
-                  </button>
+                <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+                  Referral program
+                </div>
+                <div className="text-sm font-semibold text-neutral-900">
+                  Invite & earn
                 </div>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-500">
-                  Once you have{" "}
-                  <span className="font-semibold text-slate-900">
-                    {referralUvThreshold} UV
-                  </span>{" "}
-                  you can join the referral program and get your own code.
-                </p>
-                <p className="text-[11px] text-slate-500">
-                  Current UV:{" "}
-                  <span className="text-slate-900 font-medium">
-                    {selfVolume} / {referralUvThreshold}
-                  </span>
-                </p>
+            </div>
 
-                {joinError && (
-                  <p className="text-[11px] text-red-500">{joinError}</p>
-                )}
-                {joinSuccess && (
-                  <p className="text-[11px] text-emerald-600">{joinSuccess}</p>
-                )}
-
-                {canJoinProgram && (
-                  <button
-                    type="button"
-                    onClick={handleJoinReferralProgram}
-                    disabled={joinLoading}
-                    className="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-emerald-300"
-                  >
-                    {joinLoading ? "Joining..." : "Join referral program"}
-                  </button>
-                )}
-              </div>
-            )}
+            {referralActive ? <Pill tone="prim">Active</Pill> : <Pill>Inactive</Pill>}
           </div>
 
-          <div className="h-px bg-slate-200" />
+          {referralActive && referralCode ? (
+            <div className="relative rounded-2xl border border-prim/40 bg-prim/20 p-4">
+              <p className="text-xs text-neutral-700 mb-2">
+                Share your referral code:
+              </p>
 
-          {/* Sponsor / placement info + referral input (only before placement) */}
-          <div className="space-y-3">
-            <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">
-              Referral sponsor & placement
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex items-center rounded-xl border border-prim/40 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 font-mono tracking-wide">
+                  {referralCode}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyReferral}
+                  className={[
+                    "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold shadow-sm transition",
+                    "focus:outline-none focus:ring-2 focus:ring-prim/40",
+                    copied
+                      ? "border-prim/50 bg-prim/30 text-neutral-900"
+                      : "border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50",
+                  ].join(" ")}
+                >
+                  {copied ? (
+                    <>
+                      <FiCheck className="h-4 w-4" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <FiCopy className="h-4 w-4" />
+                      Copy
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
+          ) : (
+            <div className="relative rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+              <p className="text-sm text-neutral-800">
+                Reach{" "}
+                <span className="font-semibold text-neutral-900">
+                  {referralUvThreshold} UV
+                </span>{" "}
+                to unlock your referral code.
+              </p>
 
-            {/* Sponsor info (referralUsed) */}
-            {sponsor ? (
-              <div className="flex flex-col gap-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center rounded-full bg-slate-50 px-3 py-1 text-xs text-slate-700 border border-slate-200">
-                    {sponsor.name || "User"}
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs text-neutral-600">
+                  <span>
+                    Progress:{" "}
+                    <span className="font-medium text-neutral-900">
+                      {selfVolume} / {referralUvThreshold}
+                    </span>
                   </span>
-                  {sponsor.email && (
-                    <span className="text-xs text-slate-500">
-                      {sponsor.email}
-                    </span>
-                  )}
-                  {sponsor.referralCode && (
-                    <span className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700 border border-sky-200">
-                      Code: {sponsor.referralCode}
-                    </span>
-                  )}
+                  <span className="font-medium text-neutral-900">
+                    {Math.round(joinProgress * 100)}%
+                  </span>
+                </div>
+
+                <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-neutral-200">
+                  <div
+                    className="h-full rounded-full bg-prim"
+                    style={{ width: `${Math.round(joinProgress * 100)}%` }}
+                  />
                 </div>
               </div>
+
+              {joinError && <p className="mt-3 text-sm text-red-600">{joinError}</p>}
+              {joinSuccess && <p className="mt-3 text-sm text-emerald-700">{joinSuccess}</p>}
+
+              {canJoinProgram && (
+                <button
+                  type="button"
+                  onClick={handleJoinReferralProgram}
+                  disabled={joinLoading}
+                  className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-prim px-4 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-prim/40 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {joinLoading ? "Joining..." : "Join referral program"}
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="h-px bg-neutral-200" />
+
+          {/* Sponsor & placement */}
+          <div className="relative space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-prim/20 ring-1 ring-prim/30">
+                <FiUsers className="h-5 w-5 text-prim" />
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+                  Referral sponsor & placement
+                </div>
+                <div className="text-sm font-semibold text-neutral-900">
+                  Who invited you & where you’re placed
+                </div>
+              </div>
+            </div>
+
+            {sponsor ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Pill>{sponsor.name || "User"}</Pill>
+                {sponsor.email ? (
+                  <span className="text-sm text-neutral-600">{sponsor.email}</span>
+                ) : null}
+                {sponsor.referralCode ? (
+                  <Pill tone="prim">
+                    Code: <span className="ml-1 font-mono">{sponsor.referralCode}</span>
+                  </Pill>
+                ) : null}
+              </div>
             ) : (
-              <p className="text-[11px] text-slate-500">
+              <p className="text-sm text-neutral-600">
                 You haven&apos;t used a referral code yet. You can link a referrer
                 before you are placed in the tree.
               </p>
             )}
 
-            {/* Placement parent info (referredBy) */}
-            {referredBy && (
-              <div className="text-[11px] text-slate-500">
-                Referred By:{" "}
-                <span className="font-medium text-slate-800">
+            {referredBy ? (
+              <div className="flex items-center gap-2">
+                <Pill tone="prim">Placed under</Pill>
+                <span className="text-sm font-medium text-neutral-900">
                   {referredBy.name || "User"}
                 </span>
-
               </div>
-            )}
+            ) : null}
 
-            {/* Apply / change referral code
-                Only allowed if NOT yet placed in tree (no referredBy) */}
             {!referredBy && (
               <form
                 onSubmit={handleApplyReferral}
-                className="flex flex-col gap-2 sm:flex-row sm:items-end"
+                className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end"
               >
                 <div className="flex-1">
-                  <label className="block text-xs uppercase tracking-wide text-slate-500 mb-1">
+                  <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1.5">
                     {sponsor ? "Use a different referral code" : "Referral code"}
                   </label>
-                  <input
-                    type="text"
-                    value={referralCodeInput}
-                    onChange={(e) => setReferralCodeInput(e.target.value)}
-                    placeholder="Enter referral code"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-                  />
-                  {applyError && (
-                    <p className="mt-1 text-[11px] text-red-500">
-                      {applyError}
-                    </p>
-                  )}
-                  {applySuccess && (
-                    <p className="mt-1 text-[11px] text-emerald-600">
-                      {applySuccess}
-                    </p>
-                  )}
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={referralCodeInput}
+                      onChange={(e) => setReferralCodeInput(e.target.value)}
+                      placeholder="Enter referral code"
+                      className={`${inputClass} pl-11`}
+                    />
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
+                      <FiLink className="h-5 w-5" />
+                    </div>
+                  </div>
+
+                  {applyError ? <p className="mt-2 text-sm text-red-600">{applyError}</p> : null}
+                  {applySuccess ? (
+                    <p className="mt-2 text-sm text-emerald-700">{applySuccess}</p>
+                  ) : null}
                 </div>
+
                 <button
                   type="submit"
                   disabled={applyLoading}
-                  className="mt-2 sm:mt-0 inline-flex items-center justify-center rounded-lg bg-sky-500 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-sky-300"
+                  className="inline-flex items-center justify-center rounded-xl bg-prim px-4 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-prim/40 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {applyLoading
-                    ? "Applying..."
-                    : sponsor
-                    ? "Change Referrer"
-                    : "Apply referral"}
+                  {applyLoading ? "Applying..." : sponsor ? "Change referrer" : "Apply referral"}
                 </button>
               </form>
             )}

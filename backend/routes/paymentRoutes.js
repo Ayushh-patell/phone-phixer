@@ -1,3 +1,4 @@
+// routes/paymentRoutes.js
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -10,7 +11,13 @@ import { protect } from "../middleware/authMiddleware.js";
 import Purchase from "../models/Purchase.js";
 import Service from "../models/Service.js";
 import User from "../models/User.js";
+import UserMetricEvent from "../models/UserMetricEvent.js";
 import { getSettingValue } from "./universalSettingsRoutes.js";
+import UserMonthlyCheckStats from "../models/UserMonthlyCheckStats.js";
+
+function monthStartUTC(date = new Date()) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0));
+}
 
 const router = express.Router();
 
@@ -30,10 +37,6 @@ const RAZORPAY_MIN_AMOUNT = 1;
  * @route   POST /api/payments/create-order
  * @desc    Create Razorpay order for a service (Test mode)
  * @access  Private (logged-in user)
- *
- * Body: { serviceId, amount?, useWallet?, walletToUse?, originalPrice?, isRenew?, previousPurchaseId? }
- * - amount (INR) is the amount to charge via Razorpay.
- *   If omitted, defaults to the full service.price.
  */
 router.post("/create-order", protect, async (req, res) => {
   try {
@@ -53,7 +56,6 @@ router.post("/create-order", protect, async (req, res) => {
       return res.status(400).json({ message: "Invalid service price" });
     }
 
-    // Use amount from body if provided, otherwise use full service price
     const amountInRupees =
       typeof amount !== "undefined" && amount !== null
         ? Number(amount)
@@ -63,7 +65,6 @@ router.post("/create-order", protect, async (req, res) => {
       return res.status(400).json({ message: "Amount must be a number" });
     }
 
-    // Validate: 1 <= amount <= servicePrice
     if (amountInRupees < RAZORPAY_MIN_AMOUNT) {
       return res.status(400).json({
         message: `Amount must be at least ₹${RAZORPAY_MIN_AMOUNT}`,
@@ -75,10 +76,8 @@ router.post("/create-order", protect, async (req, res) => {
         .json({ message: "Amount cannot exceed service price" });
     }
 
-    // Amount in paise
     const amountInPaise = Math.round(amountInRupees * 100);
 
-    // Make sure receipt is < 40 chars
     const shortServiceId = service._id.toString().slice(-8);
     const shortTimestamp = Date.now().toString().slice(-6);
 
@@ -90,10 +89,7 @@ router.post("/create-order", protect, async (req, res) => {
 
     const order = await razorpay.orders.create(options);
 
-    // Optional: send some user details to prefill on frontend
-    const userDoc = await User.findById(req.user.id).select(
-      "name email phone"
-    );
+    const userDoc = await User.findById(req.user.id).select("name email phone");
 
     return res.json({
       orderId: order.id,
@@ -110,7 +106,6 @@ router.post("/create-order", protect, async (req, res) => {
     });
   } catch (err) {
     console.error("Error creating Razorpay order:", err);
-    // If Razorpay responded with a validation error, bubble it up for easier debugging
     if (err.error) {
       return res.status(400).json({
         message: err.error.description || "Razorpay error",
@@ -126,24 +121,7 @@ router.post("/create-order", protect, async (req, res) => {
  * Verifies Razorpay payment, records purchase (or renew), updates selfVolume
  * and propagates UV up the referral tree with hotposition rules.
  *
- * Also supports partial wallet payment:
- *  Body extra fields:
- *    - useWallet?: boolean
- *    - walletUsed?: number (INR) – amount to deduct from wallet AFTER payment
- *    - originalPrice?: number (INR) – original service price (for reference/log)
- *
- * Device info (required, coming from frontend):
- *    - deviceBrand: string
- *    - deviceModel: string
- *    - deviceImei: string
- *
- * Renewal extra fields:
- *    - isRenew?: boolean
- *    - previousPurchaseId?: string
- *
- * When isRenew === true:
- *    - DO NOT create a new Purchase.
- *    - Only update existing purchase's renewedAt to current date.
+ * ✅ ALSO logs RSP earned events (time + amount) in UserMetricEvent
  */
 router.post("/verify", protect, async (req, res) => {
   try {
@@ -171,16 +149,13 @@ router.post("/verify", protect, async (req, res) => {
       return res.status(400).json({ message: "Missing payment details" });
     }
 
-    // device data required as well
     if (!deviceBrand || !deviceModel || !deviceImei) {
       return res
         .status(400)
         .json({ message: "Device brand, model and IMEI are required" });
     }
 
-    // 1. Verify signature using Razorpay secret
     const body = `${razorpay_order_id}|${razorpay_payment_id}`;
-
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body.toString())
@@ -190,7 +165,6 @@ router.post("/verify", protect, async (req, res) => {
       return res.status(400).json({ message: "Invalid payment signature" });
     }
 
-    // 2. Get service + user
     const service = await Service.findById(serviceId);
     if (!service) {
       return res.status(404).json({ message: "Service not found" });
@@ -206,7 +180,6 @@ router.post("/verify", protect, async (req, res) => {
       return res.status(400).json({ message: "Invalid service price" });
     }
 
-    // 3. If partial wallet is used, validate wallet & remember how much to deduct
     let walletToDeduct = 0;
     if (useWallet && walletUsed) {
       const walletUsedNum = Number(walletUsed);
@@ -216,7 +189,6 @@ router.post("/verify", protect, async (req, res) => {
           .json({ message: "walletUsed must be a non-negative number" });
       }
 
-      // Check user actually has at least this much in wallet
       if ((user.walletBalance || 0) < walletUsedNum) {
         return res.status(400).json({
           message:
@@ -227,13 +199,10 @@ router.post("/verify", protect, async (req, res) => {
       walletToDeduct = walletUsedNum;
     }
 
-    const uv = service.uv || 0;
-
+    const uv = Number(service.uv || 0);
     let purchase = null;
 
     if (isRenew && previousPurchaseId) {
-      // RENEW FLOW: do NOT create a new purchase
-      // just update renewedAt of the existing purchase for this user + service
       purchase = await Purchase.findOneAndUpdate(
         {
           _id: previousPurchaseId,
@@ -243,7 +212,6 @@ router.post("/verify", protect, async (req, res) => {
         {
           $set: {
             renewedAt: new Date(),
-            // optionally refresh device info for the record:
             deviceBrand,
             deviceModel,
             deviceImei,
@@ -258,7 +226,6 @@ router.post("/verify", protect, async (req, res) => {
         });
       }
     } else {
-      // NORMAL PURCHASE FLOW: create a new purchase record
       purchase = await Purchase.create({
         userId: user._id,
         serviceId: service._id,
@@ -273,35 +240,68 @@ router.post("/verify", protect, async (req, res) => {
       });
     }
 
-    // 5. If using wallet partially, deduct wallet after successful payment
     if (walletToDeduct > 0) {
-      user.walletBalance = Math.max(
-        0,
-        (user.walletBalance || 0) - walletToDeduct
-      );
+      user.walletBalance = Math.max(0, (user.walletBalance || 0) - walletToDeduct);
     }
 
-    // 6. Update user's selfVolume (always, purchase or renew)
     user.selfVolume = (user.selfVolume || 0) + uv;
 
-    const RSP_PER_UV_RENEW = await getSettingValue("rsp_to_uv");
 
-    // 6b. Renew-only: update RSP based on UV (1 UV = 120 RSP)
     if (isRenew) {
-      const rspToAdd = uv * RSP_PER_UV_RENEW;
+  const rspToAdd = uv * RSP_PER_UV_RENEW;
+  user.rsp = (user.rsp || 0) + rspToAdd;
+  user.Totalrsp = (user.Totalrsp || 0) + rspToAdd;
+
+  // ✅ monthly RSP created
+  const month = monthStartUTC(new Date());
+  await UserMonthlyCheckStats.findOneAndUpdate(
+    { user: user._id, month },
+    { $inc: { rspCreated: rspToAdd } },
+    { upsert: true, new: true }
+  );
+}
+
+    // ✅ RSP earn on renew (with time logging)
+    const rspPerUvSetting = await getSettingValue("rsp_to_uv", 120);
+    const rspPerUv = Number(rspPerUvSetting);
+    const safeRspPerUv = Number.isFinite(rspPerUv) && rspPerUv > 0 ? rspPerUv : 0;
+
+    let rspToAdd = 0;
+    if (isRenew && safeRspPerUv > 0 && uv > 0) {
+      rspToAdd = uv * safeRspPerUv;
       user.rsp = (user.rsp || 0) + rspToAdd;
       user.Totalrsp = (user.Totalrsp || 0) + rspToAdd;
+
+      // ✅ event log: how much + when (createdAt)
+      await UserMetricEvent.create({
+        user: user._id,
+        eventType: "rsp_earned",
+        metrics: {
+          rsp: rspToAdd,
+          uv,
+          rspPerUv: safeRspPerUv,
+        },
+        refs: {
+          serviceId: service._id,
+          purchaseId: purchase?._id,
+          previousPurchaseId: previousPurchaseId || undefined,
+          razorpayOrderId: razorpay_order_id,
+          razorpayPaymentId: razorpay_payment_id,
+        },
+        meta: {
+          method: walletToDeduct > 0 ? "razorpay+wallet" : "razorpay",
+          isRenew: true,
+          originalPrice: originalPrice ?? servicePrice,
+          walletUsed: walletToDeduct || 0,
+        },
+      });
     }
 
-    const ACTIVATION_THRESHOLD = await getSettingValue(
-      "referralActive_limit",
-      5
-    );
+    const ACTIVATION_THRESHOLD = await getSettingValue("referralActive_limit", 5);
 
-    // If user crosses threshold and is not yet active:
     if (user.selfVolume >= ACTIVATION_THRESHOLD && !user.referralActive) {
       user.referralActive = true;
-      user.at_hotposition = false; // they leave hotposition once activated
+      user.at_hotposition = false;
     }
 
     if (!user.hasMadeFirstPurchase) {
@@ -310,7 +310,6 @@ router.post("/verify", protect, async (req, res) => {
 
     await user.save();
 
-    // 7. Update upline volumes based on referral tree
     if (user.referredBy) {
       await updateReferralVolumes(user._id, uv);
     }
@@ -322,6 +321,7 @@ router.post("/verify", protect, async (req, res) => {
       purchase,
       walletDeducted: walletToDeduct,
       originalPrice: originalPrice ?? servicePrice,
+      rspAdded: rspToAdd, // ✅ helpful for UI
     });
   } catch (err) {
     console.error("Error verifying Razorpay payment:", err);
@@ -334,20 +334,7 @@ router.post("/verify", protect, async (req, res) => {
  * @desc    Purchase a service using wallet balance only (no Razorpay)
  * @access  Private
  *
- * Body: {
- *   serviceId,
- *   amount,
- *   deviceBrand,
- *   deviceModel,
- *   deviceImei,
- *   isRenew?,            // true for renew flows
- *   previousPurchaseId?, // purchase to mark as renewed
- * }
- *  - amount: expected to match service.price (INR)
- *
- * When isRenew === true:
- *   - DO NOT create a new Purchase.
- *   - Only update existing purchase's renewedAt to current date.
+ * ✅ ALSO logs RSP earned events (time + amount) in UserMetricEvent
  */
 router.post("/pay-with-wallet", protect, async (req, res) => {
   try {
@@ -362,12 +349,9 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
     } = req.body || {};
 
     if (!serviceId || typeof amount === "undefined") {
-      return res
-        .status(400)
-        .json({ message: "serviceId and amount are required" });
+      return res.status(400).json({ message: "serviceId and amount are required" });
     }
 
-    // device data required
     if (!deviceBrand || !deviceModel || !deviceImei) {
       return res
         .status(400)
@@ -391,12 +375,9 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
 
     const amountNum = Number(amount);
     if (Number.isNaN(amountNum) || amountNum <= 0) {
-      return res
-        .status(400)
-        .json({ message: "amount must be a positive number" });
+      return res.status(400).json({ message: "amount must be a positive number" });
     }
 
-    // For now require exact match: wallet purchase must be for full service price
     if (amountNum !== servicePrice) {
       return res.status(400).json({
         message:
@@ -404,21 +385,16 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       });
     }
 
-    // Check wallet balance
     if ((user.walletBalance || 0) < amountNum) {
-      return res.status(400).json({
-        message: "Insufficient wallet balance",
-      });
+      return res.status(400).json({ message: "Insufficient wallet balance" });
     }
 
-    // Deduct from wallet
     user.walletBalance = Math.max(0, (user.walletBalance || 0) - amountNum);
 
-    const uv = service.uv || 0;
+    const uv = Number(service.uv || 0);
     let purchase = null;
 
     if (isRenew && previousPurchaseId) {
-      // RENEW FLOW: do NOT create new purchase
       purchase = await Purchase.findOneAndUpdate(
         {
           _id: previousPurchaseId,
@@ -428,7 +404,6 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
         {
           $set: {
             renewedAt: new Date(),
-            // optionally refresh device info
             deviceBrand,
             deviceModel,
             deviceImei,
@@ -443,7 +418,6 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
         });
       }
     } else {
-      // NORMAL PURCHASE FLOW: create new purchase
       purchase = await Purchase.create({
         userId: user._id,
         serviceId: service._id,
@@ -453,26 +427,59 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
         deviceBrand,
         deviceModel,
         deviceImei,
-        // paymentMethod: "wallet" (optional, if schema supports)
       });
     }
 
-    // Update UV on user
     user.selfVolume = (user.selfVolume || 0) + uv;
 
-    const RSP_PER_UV_RENEW = await getSettingValue("rsp_to_uv");
 
-    // Renew-only: update RSP
     if (isRenew) {
-      const rspToAdd = uv * RSP_PER_UV_RENEW;
+  const rspToAdd = uv * RSP_PER_UV_RENEW;
+  user.rsp = (user.rsp || 0) + rspToAdd;
+  user.Totalrsp = (user.Totalrsp || 0) + rspToAdd;
+
+  // ✅ monthly RSP created
+  const month = monthStartUTC(new Date());
+  await UserMonthlyCheckStats.findOneAndUpdate(
+    { user: user._id, month },
+    { $inc: { rspCreated: rspToAdd } },
+    { upsert: true, new: true }
+  );
+}
+
+    // ✅ RSP earn on renew (with time logging)
+    const rspPerUvSetting = await getSettingValue("rsp_to_uv", 120);
+    const rspPerUv = Number(rspPerUvSetting);
+    const safeRspPerUv = Number.isFinite(rspPerUv) && rspPerUv > 0 ? rspPerUv : 0;
+
+    let rspToAdd = 0;
+    if (isRenew && safeRspPerUv > 0 && uv > 0) {
+      rspToAdd = uv * safeRspPerUv;
       user.rsp = (user.rsp || 0) + rspToAdd;
       user.Totalrsp = (user.Totalrsp || 0) + rspToAdd;
+
+      await UserMetricEvent.create({
+        user: user._id,
+        eventType: "rsp_earned",
+        metrics: {
+          rsp: rspToAdd,
+          uv,
+          rspPerUv: safeRspPerUv,
+        },
+        refs: {
+          serviceId: service._id,
+          purchaseId: purchase?._id,
+          previousPurchaseId: previousPurchaseId || undefined,
+        },
+        meta: {
+          method: "wallet",
+          isRenew: true,
+          paidInr: amountNum,
+        },
+      });
     }
 
-    const ACTIVATION_THRESHOLD = await getSettingValue(
-      "referralActive_limit",
-      5
-    );
+    const ACTIVATION_THRESHOLD = await getSettingValue("referralActive_limit", 5);
 
     if (user.selfVolume >= ACTIVATION_THRESHOLD && !user.referralActive) {
       user.referralActive = true;
@@ -485,7 +492,6 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
 
     await user.save();
 
-    // Propagate volumes upwards if placed
     if (user.referredBy) {
       await updateReferralVolumes(user._id, uv);
     }
@@ -496,6 +502,7 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
         : "Service purchased using wallet balance",
       purchase,
       walletRemaining: user.walletBalance,
+      rspAdded: rspToAdd, // ✅ helpful for UI
     });
   } catch (err) {
     console.error("Error in wallet payment:", err);

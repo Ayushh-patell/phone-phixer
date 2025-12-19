@@ -9,6 +9,8 @@ import {
   CHECK_PAYOUT_AMOUNT,
 } from "../lib/checkLogic.js";
 import { runWeeklyCheckPayouts } from "../cron/weeklyCheckPayoutJob.js";
+
+// Monthly stats model (now includes checks + payout + RSP created/converted)
 import UserMonthlyCheckStats from "../models/UserMonthlyCheckStats.js";
 
 const router = express.Router();
@@ -37,11 +39,14 @@ function parseMonthParam(monthStr) {
 }
 
 function addMonthsUTC(date, months) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1, 0, 0, 0, 0));
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1, 0, 0, 0, 0)
+  );
 }
 
-
-
+function isAdminUser(user) {
+  return user?.role === "admin" || user?.isAdmin === true;
+}
 
 router.post("/run-weekly", protect, async (req, res) => {
   try {
@@ -78,37 +83,30 @@ router.post("/redeem", protect, async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // 1) Calculate checks from CURRENT volumes
-    const selfChecks = calculateSelfChecks(user.selfVolume);           // 4 self UV per check
-    const treeChecks = calculateTreeChecks(user.leftVolume, user.rightVolume); // 2 left + 2 right per check
-
+    const selfChecks = calculateSelfChecks(user.selfVolume);
+    const treeChecks = calculateTreeChecks(user.leftVolume, user.rightVolume);
     const totalChecks = selfChecks + treeChecks;
 
     if (totalChecks <= 0) {
       return res.status(400).json({ message: "No checks available to redeem" });
     }
 
-    // 2) Compute how much UV we consume
     const usedSelfUV = selfChecks * 4;
     const usedLeftUV = treeChecks * 2;
     const usedRightUV = treeChecks * 2;
 
-    // 3) Subtract consumed UV from user volumes
     user.selfVolume = Math.max(0, (user.selfVolume || 0) - usedSelfUV);
     user.leftVolume = Math.max(0, (user.leftVolume || 0) - usedLeftUV);
     user.rightVolume = Math.max(0, (user.rightVolume || 0) - usedRightUV);
 
-    // 4) Compute payout
     const payoutAmount = totalChecks * CHECK_PAYOUT_AMOUNT;
 
-    // 5) Update user wallet + earnings + checksClaimed
     user.checksClaimed = (user.checksClaimed || 0) + totalChecks;
     user.walletBalance = (user.walletBalance || 0) + payoutAmount;
     user.totalEarnings = (user.totalEarnings || 0) + payoutAmount;
 
     await user.save();
 
-    // 6) Update global stats
     const stats = await Stats.findOneAndUpdate(
       { key: "global" },
       {
@@ -147,21 +145,6 @@ router.post("/redeem", protect, async (req, res) => {
   }
 });
 
-
-
-
-
-
-
-
-
-
-
-
-function isAdminUser(user) {
-  return user?.role === "admin" || user?.isAdmin === true;
-}
-
 /**
  * @route   GET /api/checks/stats
  * @desc    Get global check/payout stats (admin only)
@@ -178,8 +161,13 @@ router.get("/stats", protect, async (req, res) => {
       (await Stats.create({ key: "global" }));
 
     return res.json({
-      totalChecksCreated: stats.totalChecksCreated,
-      totalPayoutAmount: stats.totalPayoutAmount,
+      totalChecksCreated: stats.totalChecksCreated ?? 0,
+      totalPayoutAmount: stats.totalPayoutAmount ?? 0,
+
+      // RSP conversion totals (from cron)
+      totalRspConvertedUnits: stats.totalRspConvertedUnits ?? 0,
+      totalRspConvertedAmount: stats.totalRspConvertedAmount ?? 0,
+
       updatedAt: stats.updatedAt,
       createdAt: stats.createdAt,
     });
@@ -188,10 +176,6 @@ router.get("/stats", protect, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
-
-
-
-
 
 /**
  * =========================
@@ -204,16 +188,24 @@ router.get("/stats", protect, async (req, res) => {
  * GET /api/checks/admin/user?email=a@b.com&months=6
  * GET /api/checks/admin/user?userId=...&months=12
  * Optional: &from=YYYY-MM  (otherwise last N months)
+ *
+ * Returns per month:
+ * - checksCreated (credited)
+ * - payoutAmount (₹ credited from checks)
+ * - rspCreated (earned by renewals, etc.)
+ * - rspConvertedUnits (converted into wallet)
+ * - rspConvertedAmount (₹ credited from RSP conversion)
  */
 router.get("/admin/user", protect, async (req, res) => {
   try {
-
     if (!isAdminUser(req.user)) {
       return res.status(403).json({ message: "Admins only" });
     }
 
     const { email, userId } = req.query;
-    const months = Math.min(Math.max(Number(req.query.months || 6), 1), 12); // 1..12
+
+    // 5 years retention => allow up to 60 months
+    const months = Math.min(Math.max(Number(req.query.months || 6), 1), 60);
     const from = parseMonthParam(req.query.from);
 
     if (!email && !userId) {
@@ -221,14 +213,18 @@ router.get("/admin/user", protect, async (req, res) => {
     }
 
     const user = email
-      ? await User.findOne({ email: String(email).toLowerCase().trim() }).select("_id name email role")
+      ? await User.findOne({ email: String(email).toLowerCase().trim() }).select(
+          "_id name email role"
+        )
       : await User.findById(userId).select("_id name email role");
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    const start = from ? from : monthStartUTC(addMonthsUTC(new Date(), -(months - 1)));
+    const start = from
+      ? from
+      : monthStartUTC(addMonthsUTC(new Date(), -(months - 1)));
 
-    const stats = await UserMonthlyCheckStats.find({
+    const rows = await UserMonthlyCheckStats.find({
       user: user._id,
       month: { $gte: start },
     })
@@ -238,10 +234,17 @@ router.get("/admin/user", protect, async (req, res) => {
     return res.json({
       user: { id: user._id, name: user.name, email: user.email },
       range: { from: start.toISOString(), months },
-      stats,
+      stats: rows.map((r) => ({
+        month: r.month,
+        checksCreated: r.checksCreated ?? 0,
+        payoutAmount: r.payoutAmount ?? 0,
+        rspCreated: r.rspCreated ?? 0,
+        rspConvertedUnits: r.rspConvertedUnits ?? 0,
+        rspConvertedAmount: r.rspConvertedAmount ?? 0,
+      })),
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error in /admin/user:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -249,16 +252,19 @@ router.get("/admin/user", protect, async (req, res) => {
 /**
  * Admin: Get all users stats for a given month (leaderboard / reporting)
  * GET /api/checks/admin/month?month=YYYY-MM&limit=50&skip=0
+ *
+ * Sorts by checksCreated desc by default.
  */
 router.get("/admin/month", protect, async (req, res) => {
   try {
-
     if (!isAdminUser(req.user)) {
       return res.status(403).json({ message: "Admins only" });
     }
 
     const month = parseMonthParam(req.query.month);
-    if (!month) return res.status(400).json({ message: "month is required (YYYY-MM)" });
+    if (!month) {
+      return res.status(400).json({ message: "month is required (YYYY-MM)" });
+    }
 
     const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 500);
     const skip = Math.max(Number(req.query.skip || 0), 0);
@@ -270,22 +276,27 @@ router.get("/admin/month", protect, async (req, res) => {
       .populate("user", "name email role")
       .lean();
 
-    // optional total count for pagination
     const total = await UserMonthlyCheckStats.countDocuments({ month });
 
-    res.json({
+    return res.json({
       month: month.toISOString(),
       total,
       limit,
       skip,
       rows: rows.map((r) => ({
-        user: r.user ? { id: r.user._id, name: r.user.name, email: r.user.email } : null,
-        checksCreated: r.checksCreated,
+        user: r.user
+          ? { id: r.user._id, name: r.user.name, email: r.user.email }
+          : null,
         month: r.month,
+        checksCreated: r.checksCreated ?? 0,
+        payoutAmount: r.payoutAmount ?? 0,
+        rspCreated: r.rspCreated ?? 0,
+        rspConvertedUnits: r.rspConvertedUnits ?? 0,
+        rspConvertedAmount: r.rspConvertedAmount ?? 0,
       })),
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error in /admin/month:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -296,15 +307,22 @@ router.get("/admin/month", protect, async (req, res) => {
  */
 router.get("/admin/range", protect, async (req, res) => {
   try {
-    
     if (!isAdminUser(req.user)) {
       return res.status(403).json({ message: "Admins only" });
     }
 
     const from = parseMonthParam(req.query.from);
     const to = parseMonthParam(req.query.to);
-    if (!from || !to) return res.status(400).json({ message: "from and to are required (YYYY-MM)" });
-    if (to < from) return res.status(400).json({ message: "to must be >= from" });
+
+    if (!from || !to) {
+      return res
+        .status(400)
+        .json({ message: "from and to are required (YYYY-MM)" });
+    }
+
+    if (to < from) {
+      return res.status(400).json({ message: "to must be >= from" });
+    }
 
     const endExclusive = addMonthsUTC(to, 1);
 
@@ -315,17 +333,23 @@ router.get("/admin/range", protect, async (req, res) => {
       .sort({ month: 1, checksCreated: -1 })
       .lean();
 
-    res.json({
+    return res.json({
       from: from.toISOString(),
       to: to.toISOString(),
       rows: rows.map((r) => ({
-        user: r.user ? { id: r.user._id, name: r.user.name, email: r.user.email } : null,
+        user: r.user
+          ? { id: r.user._id, name: r.user.name, email: r.user.email }
+          : null,
         month: r.month,
-        checksCreated: r.checksCreated,
+        checksCreated: r.checksCreated ?? 0,
+        payoutAmount: r.payoutAmount ?? 0,
+        rspCreated: r.rspCreated ?? 0,
+        rspConvertedUnits: r.rspConvertedUnits ?? 0,
+        rspConvertedAmount: r.rspConvertedAmount ?? 0,
       })),
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error in /admin/range:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -343,30 +367,38 @@ router.get("/admin/range", protect, async (req, res) => {
  */
 router.get("/me", protect, async (req, res) => {
   try {
-    // optional: block disabled users if you want
     if (req.user?.isDisabled) {
       return res.status(403).json({ message: "Account disabled" });
     }
 
-    const months = Math.min(Math.max(Number(req.query.months || 6), 1), 12);
+    const months = Math.min(Math.max(Number(req.query.months || 6), 1), 60);
     const from = parseMonthParam(req.query.from);
 
-    const start = from ? from : monthStartUTC(addMonthsUTC(new Date(), -(months - 1)));
+    const start = from
+      ? from
+      : monthStartUTC(addMonthsUTC(new Date(), -(months - 1)));
 
-    const stats = await UserMonthlyCheckStats.find({
+    const rows = await UserMonthlyCheckStats.find({
       user: req.user.id,
       month: { $gte: start },
     })
       .sort({ month: 1 })
       .lean();
 
-    res.json({
+    return res.json({
       userId: req.user.id,
       range: { from: start.toISOString(), months },
-      stats,
+      stats: rows.map((r) => ({
+        month: r.month,
+        checksCreated: r.checksCreated ?? 0,
+        payoutAmount: r.payoutAmount ?? 0,
+        rspCreated: r.rspCreated ?? 0,
+        rspConvertedUnits: r.rspConvertedUnits ?? 0,
+        rspConvertedAmount: r.rspConvertedAmount ?? 0,
+      })),
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error in /me:", err);
     res.status(500).json({ message: "Server error" });
   }
 });

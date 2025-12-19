@@ -9,12 +9,34 @@ const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov
 const monthKeyUTC = (year, monthIndex0) =>
   `${year}-${String(monthIndex0 + 1).padStart(2, "0")}`;
 
+const fmtINR = (n) => {
+  const num = Number(n || 0);
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(num);
+  } catch {
+    return `₹ ${Math.round(num)}`;
+  }
+};
+
 const YearlyChecksCompact = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const [year, setYear] = useState(new Date().getFullYear());
-  const [months, setMonths] = useState(Array(12).fill(0)); // index 0..11 => checks
+
+  // Each month item: { checks, rspCreated, rspConvertedUnits, rspConvertedAmount }
+  const [months, setMonths] = useState(
+    Array.from({ length: 12 }, () => ({
+      checks: 0,
+      rspCreated: 0,
+      rspConvertedUnits: 0,
+      rspConvertedAmount: 0,
+    }))
+  );
 
   const fetchYear = async (y) => {
     try {
@@ -36,23 +58,35 @@ const YearlyChecksCompact = () => {
 
       const stats = res.data?.stats || [];
 
-      // Map "YYYY-MM" -> checksCreated
+      // Map "YYYY-MM" -> month stats
       const map = new Map();
       for (const s of stats) {
         const d = new Date(s.month);
         const k = monthKeyUTC(d.getUTCFullYear(), d.getUTCMonth());
-        map.set(k, Number(s.checksCreated || 0));
+        map.set(k, {
+          checks: Number(s.checksCreated || 0),
+          rspCreated: Number(s.rspCreated || 0),
+          rspConvertedUnits: Number(s.rspConvertedUnits || 0),
+          rspConvertedAmount: Number(s.rspConvertedAmount || 0),
+        });
       }
 
       const out = Array.from({ length: 12 }, (_, i) => {
         const k = monthKeyUTC(y, i);
-        return map.get(k) ?? 0;
+        return (
+          map.get(k) || {
+            checks: 0,
+            rspCreated: 0,
+            rspConvertedUnits: 0,
+            rspConvertedAmount: 0,
+          }
+        );
       });
 
       setMonths(out);
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.message || "Failed to load yearly checks.");
+      setError(err.response?.data?.message || "Failed to load yearly stats.");
     } finally {
       setLoading(false);
     }
@@ -60,14 +94,32 @@ const YearlyChecksCompact = () => {
 
   useEffect(() => {
     fetchYear(year);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year]);
 
-  const total = useMemo(
-    () => months.reduce((sum, n) => sum + (Number(n) || 0), 0),
+  const totals = useMemo(() => {
+    return months.reduce(
+      (acc, m) => {
+        acc.checks += Number(m.checks || 0);
+        acc.rspCreated += Number(m.rspCreated || 0);
+        acc.rspConvertedUnits += Number(m.rspConvertedUnits || 0);
+        acc.rspConvertedAmount += Number(m.rspConvertedAmount || 0);
+        return acc;
+      },
+      { checks: 0, rspCreated: 0, rspConvertedUnits: 0, rspConvertedAmount: 0 }
+    );
+  }, [months]);
+
+  const maxChecks = useMemo(
+    () => Math.max(1, ...months.map((m) => Number(m.checks) || 0)),
     [months]
   );
 
-  const max = useMemo(() => Math.max(1, ...months.map((n) => Number(n) || 0)), [months]);
+  const maxRsp = useMemo(
+    () => Math.max(1, ...months.map((m) => Number(m.rspCreated) || 0)),
+    [months]
+  );
+
   const currentYear = new Date().getFullYear();
 
   if (loading) {
@@ -97,10 +149,13 @@ const YearlyChecksCompact = () => {
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-wide text-slate-500">
-              Checks (Year)
+              Checks & RSP (Year)
             </div>
             <div className="text-sm font-semibold text-slate-900 truncate">
-              {year} • Total: {total}
+              {year} • Checks: {totals.checks} • RSP: {totals.rspCreated}
+            </div>
+            <div className="mt-0.5 text-[11px] text-slate-500">
+              RSP converted: {totals.rspConvertedUnits} ({fmtINR(totals.rspConvertedAmount)})
             </div>
           </div>
 
@@ -133,34 +188,73 @@ const YearlyChecksCompact = () => {
         </div>
 
         {/* Compact grid */}
-        <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-          {months.map((val, i) => {
-            const pct = Math.round(((Number(val) || 0) / max) * 100);
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {months.map((m, i) => {
+            const checks = Number(m.checks || 0);
+            const rsp = Number(m.rspCreated || 0);
+
+            const checksPct = Math.round((checks / maxChecks) * 100);
+            const rspPct = Math.round((rsp / maxRsp) * 100);
+
+            const title = [
+              `${MONTHS[i]} ${year}`,
+              `Checks: ${checks}`,
+              `RSP created: ${rsp}`,
+              `RSP converted: ${Number(m.rspConvertedUnits || 0)} (${fmtINR(m.rspConvertedAmount || 0)})`,
+            ].join(" • ");
+
             return (
               <div
                 key={`${year}-${i}`}
                 className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2"
-                title={`${MONTHS[i]} ${year}: ${val} checks`}
+                title={title}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold text-slate-700">
                     {MONTHS[i]}
                   </span>
-                  <span className="text-[11px] font-semibold text-slate-900">
-                    {val}
+                  <span className="text-[10px] text-slate-500">
+                    {year}
                   </span>
                 </div>
-                <div className="mt-1.5 h-1.5 w-full rounded-full bg-white border border-slate-200 overflow-hidden">
-                  <div
-                    className="h-full bg-sky-500"
-                    style={{ width: `${pct}%` }}
-                  />
+
+                {/* Checks row */}
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500">Checks</span>
+                  <span className="text-[11px] font-semibold text-slate-900">
+                    {checks}
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 w-full rounded-full bg-white border border-slate-200 overflow-hidden">
+                  <div className="h-full bg-sky-500" style={{ width: `${checksPct}%` }} />
+                </div>
+
+                {/* RSP row */}
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500">RSP</span>
+                  <span className="text-[11px] font-semibold text-slate-900">
+                    {rsp}
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 w-full rounded-full bg-white border border-slate-200 overflow-hidden">
+                  <div className="h-full bg-prim" style={{ width: `${rspPct}%` }} />
+                </div>
+
+                {/* Conversion mini line */}
+                <div className="mt-2 text-[10px] text-slate-500">
+                  Converted:{" "}
+                  <span className="text-slate-700 font-medium">
+                    {Number(m.rspConvertedUnits || 0)}
+                  </span>{" "}
+                  <span className="text-slate-400">•</span>{" "}
+                  <span className="text-slate-700 font-medium">
+                    {fmtINR(m.rspConvertedAmount || 0)}
+                  </span>
                 </div>
               </div>
             );
           })}
         </div>
-
       </div>
     </section>
   );

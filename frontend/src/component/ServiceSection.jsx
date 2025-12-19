@@ -1,5 +1,14 @@
 import axios from "axios";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  FiCreditCard,
+  FiSmartphone,
+  FiHash,
+  FiShield,
+  FiCheckCircle,
+  FiAlertTriangle,
+  FiZap,
+} from "react-icons/fi";
 
 // TEMP: hardcoded JWT for testing (fallback)
 const TEST_JWT =
@@ -11,7 +20,6 @@ const RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 // Razorpay minimum chargeable amount (in INR, not paise)
 const RAZORPAY_MIN_AMOUNT = 1;
 
-// ========== SERVICES COMPONENT ==========
 const ServicesSection = () => {
   const [services, setServices] = useState([]);
   const [loadingServices, setLoadingServices] = useState(false);
@@ -29,34 +37,35 @@ const ServicesSection = () => {
   const [deviceModel, setDeviceModel] = useState("");
   const [deviceImei, setDeviceImei] = useState("");
 
-  // Auth config: prefer localStorage token, fallback to TEST_JWT
+  const inputClass = useMemo(
+    () =>
+      [
+        "w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm text-neutral-900",
+        "placeholder:text-neutral-400 shadow-sm",
+        "focus:outline-none focus:ring-2 focus:ring-prim/40 focus:border-prim",
+      ].join(" "),
+    []
+  );
+
   const authConfig = () => {
     const token = localStorage.getItem("token") || TEST_JWT;
-    return token
-      ? { headers: { Authorization: `Bearer ${token}` } }
-      : { headers: {} };
+    return token ? { headers: { Authorization: `Bearer ${token}` } } : { headers: {} };
   };
 
-  // Fetch services from backend
   const fetchServices = async () => {
     try {
       setLoadingServices(true);
       setError("");
-
       const res = await axios.get(`${API_BASE_URL}/service`, authConfig());
       setServices(res.data || []);
     } catch (err) {
       console.error(err);
-      setError(
-        err.response?.data?.message ||
-          "Failed to load services. Please try again."
-      );
+      setError(err.response?.data?.message || "Failed to load services.");
     } finally {
       setLoadingServices(false);
     }
   };
 
-  // Fetch wallet balance and device info from /users/me
   const fetchWalletBalance = async () => {
     try {
       setWalletLoading(true);
@@ -64,7 +73,6 @@ const ServicesSection = () => {
       const user = res.data || {};
       setWalletBalance(Number(user.walletBalance || 0));
 
-      // pull device info and set as defaults
       setDeviceBrand(user.deviceBrand || "");
       setDeviceModel(user.deviceModel || "");
       setDeviceImei(user.deviceImei || "");
@@ -82,8 +90,7 @@ const ServicesSection = () => {
   }, []);
 
   // Razorpay helpers
-  const isRazorpayLoaded = () =>
-    typeof window !== "undefined" && window.Razorpay;
+  const isRazorpayLoaded = () => typeof window !== "undefined" && window.Razorpay;
 
   const loadRazorpayScript = () =>
     new Promise((resolve) => {
@@ -96,11 +103,6 @@ const ServicesSection = () => {
       document.body.appendChild(script);
     });
 
-  /**
-   * Wrapper to start Razorpay payment.
-   * - extraOrderPayload is sent to /payments/create-order
-   * - extraVerifyPayload is sent to /payments/verify
-   */
   const startRazorpayPayment = async ({
     service,
     payAmountInRupees,
@@ -113,7 +115,6 @@ const ServicesSection = () => {
       return;
     }
 
-    // 1. Ask backend to create Razorpay order for the given amount
     const orderRes = await axios.post(
       `${API_BASE_URL}/payments/create-order`,
       {
@@ -128,22 +129,20 @@ const ServicesSection = () => {
 
     const options = {
       key: RAZORPAY_KEY_ID,
-      amount, // already in paise (from backend)
+      amount,
       currency: currency || "INR",
       name: "phone-phixer",
       description: service.name,
       order_id: orderId,
       prefill: {
-        name: user?.name || "Test User",
+        name: user?.name || "User",
         email: user?.email || "test@example.com",
         contact: user?.phone || "9999999999",
       },
-      theme: {
-        color: "#38bdf8",
-      },
+      // If you want exact match, set this to your prim hex value
+      theme: { color: "#A5F3FC" },
       handler: async function (response) {
         try {
-          // 2. Tell backend to verify payment + create Purchase record
           await axios.post(
             `${API_BASE_URL}/payments/verify`,
             {
@@ -151,7 +150,6 @@ const ServicesSection = () => {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_signature: response.razorpay_signature,
               serviceId: service._id,
-              // device data always sent to verify
               deviceBrand,
               deviceModel,
               deviceImei,
@@ -160,8 +158,7 @@ const ServicesSection = () => {
             authConfig()
           );
 
-          alert("Payment successful (test mode).");
-          // After successful payment, wallet may have changed (partial wallet use)
+          alert("Payment successful.");
           fetchWalletBalance();
         } catch (err) {
           console.error(err);
@@ -187,37 +184,30 @@ const ServicesSection = () => {
       setPaymentLoadingId(service._id);
       setError("");
 
-      const price = Number(service.price || 0); // in INR
+      const price = Number(service.price || 0);
 
       if (price <= 0) {
         setError("Invalid service price.");
         return;
       }
 
-      // basic device info validation (required)
       if (!deviceBrand.trim() || !deviceModel.trim() || !deviceImei.trim()) {
-        setError("Please enter device brand, model, and IMEI before purchase.");
+        setError("Enter device brand, model, and IMEI before purchase.");
         return;
       }
 
       if (!useWallet) {
-        // Full amount via Razorpay
         await startRazorpayPayment({
           service,
           payAmountInRupees: price,
-          extraVerifyPayload: {
-            deviceBrand,
-            deviceModel,
-            deviceImei,
-          },
+          extraVerifyPayload: { deviceBrand, deviceModel, deviceImei },
         });
         return;
       }
 
-      // Use wallet balance if enabled
       const currentWallet = Number(walletBalance || 0);
 
-      // 1) Wallet can cover full price -> wallet-only payment
+      // Wallet-only
       if (currentWallet >= price) {
         try {
           const res = await axios.post(
@@ -225,7 +215,6 @@ const ServicesSection = () => {
             {
               serviceId: service._id,
               amount: price,
-              // send device info for wallet payments too
               deviceBrand,
               deviceModel,
               deviceImei,
@@ -233,35 +222,22 @@ const ServicesSection = () => {
             authConfig()
           );
 
-          alert(
-            res.data?.message ||
-              "Service purchased using wallet balance successfully."
-          );
-
-          // Refresh wallet balance after wallet-only payment
+          alert(res.data?.message || "Purchased using wallet.");
           fetchWalletBalance();
         } catch (err) {
           console.error(err);
-          setError(
-            err.response?.data?.message ||
-              "Failed to complete wallet payment. Please try again."
-          );
+          setError(err.response?.data?.message || "Wallet payment failed.");
         }
         return;
       }
 
-      // 2) Partial wallet + Razorpay
-      const maxWalletUsableForPartial = Math.max(
-        0,
-        price - RAZORPAY_MIN_AMOUNT
-      );
+      // Partial wallet + Razorpay
+      const maxWalletUsableForPartial = Math.max(0, price - RAZORPAY_MIN_AMOUNT);
       const walletToUse = Math.min(currentWallet, maxWalletUsableForPartial);
-      const remainingPrice = price - walletToUse; // guaranteed >= min
+      const remainingPrice = price - walletToUse;
 
       if (remainingPrice < RAZORPAY_MIN_AMOUNT) {
-        setError(
-          "Remaining amount is below Razorpay's minimum. Please adjust the payment."
-        );
+        setError("Remaining amount is below Razorpay minimum.");
         return;
       }
 
@@ -270,12 +246,12 @@ const ServicesSection = () => {
         payAmountInRupees: remainingPrice,
         extraOrderPayload: {
           useWallet: true,
-          walletToUse, // how much we *intend* to use from wallet
+          walletToUse,
           originalPrice: price,
         },
         extraVerifyPayload: {
           useWallet: true,
-          walletUsed: walletToUse, // backend: deduct this after successful Razorpay payment
+          walletUsed: walletToUse,
           originalPrice: price,
           deviceBrand,
           deviceModel,
@@ -284,10 +260,7 @@ const ServicesSection = () => {
       });
     } catch (err) {
       console.error(err);
-      setError(
-        err.response?.data?.message ||
-          "Unable to start payment. Please try again."
-      );
+      setError(err.response?.data?.message || "Unable to start payment.");
     } finally {
       setPaymentLoadingId(null);
     }
@@ -295,149 +268,209 @@ const ServicesSection = () => {
 
   return (
     <div>
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-            Services
-          </h1>
-          <p className="text-sm text-slate-400">
-            Choose a service and pay using your wallet balance and/or Razorpay.
-          </p>
-        </div>
+      {/* Header */}
+      <div className="mb-5 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <div className="h-1.5 w-full bg-prim" />
+        <div className="p-4 md:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+                Services
+              </div>
+              <h1 className="mt-1 text-lg md:text-xl font-semibold text-neutral-900">
+                Choose a service and pay
+              </h1>
+              <p className="mt-1 text-sm text-neutral-600">
+                Wallet first (optional), Razorpay for the rest.
+              </p>
+            </div>
 
-        <div className="flex flex-col items-start sm:items-end gap-1">
-          <div className="inline-flex items-center rounded-full bg-slate-900/60 border border-slate-700 px-3 py-1 text-xs text-slate-100">
-            <span className="mr-1 text-slate-50">Wallet balance:</span>
-            {walletLoading ? (
-              <span className="italic text-slate-300">Loading…</span>
-            ) : (
-              <span className="font-semibold">
-                ₹ {walletBalance.toFixed(2)}
-              </span>
-            )}
+            <div className="flex flex-col items-start sm:items-end gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-prim/40 bg-prim/15 px-3 py-1.5 text-xs font-semibold text-neutral-900">
+                <FiCreditCard className="h-4 w-4" />
+                {walletLoading ? (
+                  <span className="text-neutral-700">Loading…</span>
+                ) : (
+                  <span>Wallet ₹ {walletBalance.toFixed(2)}</span>
+                )}
+              </div>
+
+              <label className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 shadow-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useWallet}
+                  onChange={(e) => setUseWallet(e.target.checked)}
+                  className="h-4 w-4 accent-prim"
+                />
+                Use wallet
+              </label>
+            </div>
           </div>
-          <label className="flex items-center gap-2 text-xs text-slate-900 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={useWallet}
-              onChange={(e) => setUseWallet(e.target.checked)}
-              className="h-3 w-3 rounded border-slate-500 bg-slate-900 text-sky-400"
-            />
-            <span>Use wallet balance for purchases</span>
-          </label>
         </div>
       </div>
 
-      {/* Device details form (required) */}
-      <div className="mb-4 grid gap-3 md:grid-cols-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-900">
-            Device Brand <span className="text-red-400">*</span>
-          </label>
-          <input
-            type="text"
-            value={deviceBrand}
-            onChange={(e) => setDeviceBrand(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-500"
-            placeholder="e.g. Samsung"
-            required
-          />
-        </div>
+      {/* Device details */}
+      <div className="mb-5 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <div className="p-4 md:p-5">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2">
+              <div className="grid h-10 w-10 place-items-center rounded-2xl bg-prim/20 ring-1 ring-prim/30">
+                <FiSmartphone className="h-5 w-5 text-neutral-900" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-neutral-900">
+                  Device details
+                </div>
+                <div className="text-xs text-neutral-500">
+                  Required for purchase
+                </div>
+              </div>
+            </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-900">
-            Device Model <span className="text-red-400">*</span>
-          </label>
-          <input
-            type="text"
-            value={deviceModel}
-            onChange={(e) => setDeviceModel(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-500"
-            placeholder="e.g. Galaxy S24"
-            required
-          />
-        </div>
+            <div className="hidden sm:inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs text-neutral-700">
+              <FiShield className="h-4 w-4" />
+              Stored with your order
+            </div>
+          </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-900">
-            Device IMEI <span className="text-red-400">*</span>
-          </label>
-          <input
-            type="text"
-            value={deviceImei}
-            onChange={(e) => setDeviceImei(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-500"
-            placeholder="IMEI number"
-            required
-          />
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-neutral-700">
+                Brand <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={deviceBrand}
+                onChange={(e) => setDeviceBrand(e.target.value)}
+                className={inputClass}
+                placeholder="e.g. Samsung"
+                required
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-neutral-700">
+                Model <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={deviceModel}
+                onChange={(e) => setDeviceModel(e.target.value)}
+                className={inputClass}
+                placeholder="e.g. Galaxy S24"
+                required
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-neutral-700">
+                IMEI <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={deviceImei}
+                  onChange={(e) => setDeviceImei(e.target.value)}
+                  className={`${inputClass} pl-11`}
+                  placeholder="IMEI number"
+                  required
+                />
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
+                  <FiHash className="h-5 w-5" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {useWallet && (
+            <div className="mt-3 text-[11px] text-neutral-600">
+              Wallet is used first. Razorpay will charge at least ₹{RAZORPAY_MIN_AMOUNT.toFixed(2)}.
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Error */}
       {error && (
-        <div className="mb-4 rounded-xl border border-red-700 bg-red-900/40 px-4 py-2 text-sm text-red-100">
-          {error}
+        <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="flex items-start gap-2">
+            <FiAlertTriangle className="mt-0.5 h-4 w-4" />
+            <span>{error}</span>
+          </div>
         </div>
       )}
 
+      {/* Services list */}
       {loadingServices ? (
         <div className="flex justify-center py-16">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-700 border-t-sky-400" />
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-neutral-200 border-t-prim" />
         </div>
       ) : services.length === 0 ? (
-        <div className="py-16 text-center text-slate-500">
+        <div className="py-16 text-center text-neutral-600">
           No services available right now.
         </div>
       ) : (
         <div className="grid gap-5 md:grid-cols-2">
-          {services.map((service) => (
-            <div
-              key={service._id}
-              className="flex flex-col rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-sm"
-            >
-              <div className="flex-1">
-                <h2 className="text-lg font-semibold text-slate-50">
-                  {service.name}
-                </h2>
-                {service.description && (
-                  <p className="mt-2 text-sm text-slate-300">
-                    {service.description}
-                  </p>
-                )}
+          {services.map((service) => {
+            const isPaying = paymentLoadingId === service._id;
+            return (
+              <div
+                key={service._id}
+                className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm"
+              >
+                <div className="absolute inset-x-0 top-0 h-1.5 bg-prim" />
+                <div className="pointer-events-none absolute -right-14 -top-16 h-56 w-56 rounded-full bg-prim/18 blur-3xl" />
 
-                <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="inline-flex items-center rounded-full bg-slate-800 px-3 py-1 font-medium text-slate-100">
-                    ₹ {service.price}
-                  </span>
-                  <span className="inline-flex items-center rounded-full bg-sky-900/40 px-3 py-1 font-medium text-sky-300 border border-sky-700/60">
-                    UV: {service.uv}
-                  </span>
-                  <span className="inline-flex items-center rounded-full bg-emerald-900/40 px-3 py-1 font-medium text-emerald-300 border border-emerald-700/60">
-                    Valid for {service.validityDays} days
-                  </span>
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold text-neutral-900">
+                    {service.name}
+                  </h2>
+
+                  {service.description && (
+                    <p className="mt-2 text-sm text-neutral-600">
+                      {service.description}
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="inline-flex items-center rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 font-semibold text-neutral-900">
+                      ₹ {service.price}
+                    </span>
+
+                    <span className="inline-flex items-center gap-1 rounded-full border border-prim/40 bg-prim/15 px-3 py-1 font-semibold text-neutral-900">
+                      <FiZap className="h-3.5 w-3.5" />
+                      UV {service.uv}
+                    </span>
+
+                    <span className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-3 py-1 text-neutral-700">
+                      Valid {service.validityDays} days
+                    </span>
+                  </div>
                 </div>
 
-                {useWallet && (
-                  <p className="mt-2 text-[11px] text-slate-400">
-                    Wallet is applied first. For partial payments, wallet is
-                    used until at least ₹{RAZORPAY_MIN_AMOUNT.toFixed(2)} is left
-                    for Razorpay.
-                  </p>
-                )}
+                <button
+                  onClick={() => handlePurchase(service)}
+                  disabled={isPaying}
+                  className={[
+                    "mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition",
+                    "focus:outline-none focus:ring-2 focus:ring-prim/40",
+                    isPaying
+                      ? "bg-neutral-200 text-neutral-600 cursor-not-allowed"
+                      : "bg-prim text-neutral-900 hover:opacity-95",
+                  ].join(" ")}
+                >
+                  {isPaying ? (
+                    "Processing…"
+                  ) : (
+                    <>
+                      <FiCheckCircle className="h-4.5 w-4.5" />
+                      Buy for ₹{Number(service.price || 0).toFixed(0)}
+                    </>
+                  )}
+                </button>
               </div>
-
-              <button
-                onClick={() => handlePurchase(service)}
-                disabled={paymentLoadingId === service._id}
-                className="mt-6 inline-flex items-center justify-center rounded-xl bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-sky-500/70"
-              >
-                {paymentLoadingId === service._id
-                  ? "Processing..."
-                  : useWallet
-                  ? "Buy "
-                  : "Buy"}
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

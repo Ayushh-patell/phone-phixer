@@ -16,7 +16,9 @@ import {
   FiAward,
   FiMenu,
   FiX,
+  FiActivity,
 } from "react-icons/fi";
+import StarEligibilitySection from "./component/StarEligibility";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -74,6 +76,7 @@ function Dashboard() {
     if (activeTab === "overview") return "Overview";
     if (activeTab === "services") return "Services";
     if (activeTab === "purchases") return "Purchases";
+    if (activeTab === "stats") return "Stats";
     if (activeTab === "stars") return "Stars";
     return "Dashboard";
   }, [activeTab]);
@@ -167,7 +170,8 @@ function Dashboard() {
                 <NavButton id="overview" label="Overview" Icon={FiGrid} />
                 <NavButton id="services" label="Services" Icon={FiTool} />
                 <NavButton id="purchases" label="Purchases" Icon={FiShoppingBag} />
-                <NavButton id="stars" label="Stars" Icon={FiAward} />
+                <NavButton id="stats" label="Stats" Icon={FiActivity} />
+                <NavButton id="stars" label="Star" Icon={FiAward} />
               </div>
 
               <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
@@ -212,7 +216,8 @@ function Dashboard() {
             <NavButton id="overview" label="Overview" Icon={FiGrid} />
             <NavButton id="services" label="Services" Icon={FiTool} />
             <NavButton id="purchases" label="Purchases" Icon={FiShoppingBag} />
-            <NavButton id="stars" label="Stars" Icon={FiAward} />
+            <NavButton id="stats" label="Stats" Icon={FiActivity} />
+            <NavButton id="stars" label="Star" Icon={FiAward} />
           </nav>
 
           {/* User */}
@@ -257,6 +262,8 @@ function Dashboard() {
                         ? "Manage and track services."
                         : activeTab === "purchases"
                         ? "Your purchases and history."
+                        : activeTab === "stats"
+                        ? "Your personal Stats"
                         : "Your star level and benefits."}
                     </div>
                   </div>
@@ -284,7 +291,8 @@ function Dashboard() {
             {activeTab === "overview" && <OverviewSection user={user} />}
             {activeTab === "services" && <ServicesSection />}
             {activeTab === "purchases" && <PurchasesSection />}
-            {activeTab === "stars" && <StarsSection />}
+            {activeTab === "stats" && <StarsSection />}
+            {activeTab === "stars" && <StarEligibilitySection />}
           </main>
         </div>
       </div>

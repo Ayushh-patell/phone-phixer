@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { FiStar, FiTrendingUp, FiDollarSign, FiActivity, FiAlertTriangle } from "react-icons/fi";
 import YearlyChecksCompact from "./YearlyChecks";
+import StarEligibilitySection from "./StarEligibility";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -152,6 +153,7 @@ const StarsSection = () => {
               <YearlyChecksCompact />
             </div>
           </div>
+
         </>
       )}
     </div>

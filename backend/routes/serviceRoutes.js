@@ -45,8 +45,9 @@ router.post("/create", protect, async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const services = await Service.find({ isActive: true }).sort({
-      createdAt: -1,
+      createdAt: 1, 
     });
+
     res.json(services);
   } catch (error) {
     console.error(error);

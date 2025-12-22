@@ -319,7 +319,7 @@ const TopMetrics = () => {
         <MetricCard
           label="Available Checks"
           value={Number(checks || 0).toFixed(0)}
-          sub="Checks you can currently redeem or request."
+          sub="Available checks auto-redeemed weekly"
           Icon={FiGrid}
         />
         <MetricCard

@@ -40,7 +40,7 @@ function MetricCard({ label, value, sub, Icon, highlight = false }) {
 
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+          <div className="text-[11px] uppercase tracking-wider text-black font-semibold">
             {label}
           </div>
           <div className="mt-1 text-2xl font-semibold text-neutral-900">
@@ -248,7 +248,7 @@ const TopMetrics = () => {
   const handleCopyReferral = async () => {
     if (!userInfo.referralCode) return;
     try {
-      await navigator.clipboard.writeText(userInfo.referralCode);
+      await navigator.clipboard.writeText("PP" + userInfo.referralCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     } catch (err) {
@@ -384,7 +384,7 @@ const TopMetrics = () => {
 
               <div className="flex flex-wrap items-center gap-2">
                 <div className="inline-flex items-center rounded-xl border border-prim/40 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 font-mono tracking-wide">
-                  {referralCode}
+                  PP{referralCode}
                 </div>
 
                 <button
@@ -485,7 +485,7 @@ const TopMetrics = () => {
                 ) : null}
                 {sponsor.referralCode ? (
                   <Pill tone="prim">
-                    Code: <span className="ml-1 font-mono">{sponsor.referralCode}</span>
+                    Code: PP<span className="ml-1 font-mono">{sponsor.referralCode}</span>
                   </Pill>
                 ) : null}
               </div>

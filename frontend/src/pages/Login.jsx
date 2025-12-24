@@ -1,6 +1,6 @@
 // src/pages/Login.jsx
-import React, { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { login } from "../api/auth";
 import { HiOutlineDevicePhoneMobile } from "react-icons/hi2";
 import {
@@ -15,13 +15,27 @@ import {
 
 function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(""); // used as "Referral Code"
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // ✅ Prefill referral code from ?ref= or sessionStorage("referralCode")
+  useEffect(() => {
+    const fromQuery = searchParams.get("ref");
+    const fromSession = sessionStorage.getItem("referralCode");
+    const referralCode = (fromQuery || fromSession || "").trim();
+
+    if (referralCode) {
+      setEmail(referralCode);
+      // keep it around so refresh/navigation still has it
+      sessionStorage.setItem("referralCode", referralCode);
+    }
+  }, [searchParams]);
 
   const inputClass = useMemo(
     () =>
@@ -40,7 +54,7 @@ function LoginPage() {
 
     try {
       const data = await login(email.trim(), password);
-      localStorage.setItem("token", data.token);
+      sessionStorage.setItem("token", data.token);
       if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
       navigate("/dashboard");
     } catch (err) {
@@ -86,31 +100,30 @@ function LoginPage() {
                 </h1>
 
                 <div className="mt-6 space-y-3 text-sm text-neutral-700">
-                <div className="flex items-start gap-3">
-                  <span className="mt-1 h-2.5 w-2.5 rounded-full bg-prim" />
-                  <p>See your repairs, purchases, and activity in one place.</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <span className="mt-1 h-2.5 w-2.5 rounded-full bg-prim" />
-                  <p>Keep device info saved for faster service and renewals.</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <span className="mt-1 h-2.5 w-2.5 rounded-full bg-prim" />
-                  <p>Secure sign-in with email verification and OTP steps.</p>
-                </div>
-              </div>
-
-              <div className="mt-8 rounded-2xl border border-neutral-200 bg-white p-5">
-                <div className="flex items-center gap-3">
-                  <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-xl bg-prim/20 ring-1 ring-prim/30 text-neutral-900">
-                    <FiLock className="h-5 w-5" />
+                  <div className="flex items-start gap-3">
+                    <span className="mt-1 h-2.5 w-2.5 rounded-full bg-prim" />
+                    <p>See your repairs, purchases, and activity in one place.</p>
                   </div>
-                  <p className="text-xs text-neutral-600">
-                    Quick tip: If this isn’t your device, sign out when you’re done.
-                  </p>
+                  <div className="flex items-start gap-3">
+                    <span className="mt-1 h-2.5 w-2.5 rounded-full bg-prim" />
+                    <p>Keep device info saved for faster service and renewals.</p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="mt-1 h-2.5 w-2.5 rounded-full bg-prim" />
+                    <p>Secure sign-in with email verification and OTP steps.</p>
+                  </div>
                 </div>
-              </div>
 
+                <div className="mt-8 rounded-2xl border border-neutral-200 bg-white p-5">
+                  <div className="flex items-center gap-3">
+                    <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-xl bg-prim/20 ring-1 ring-prim/30 text-neutral-900">
+                      <FiLock className="h-5 w-5" />
+                    </div>
+                    <p className="text-xs text-neutral-600">
+                      Quick tip: If this isn’t your device, sign out when you’re done.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-10 text-xs text-neutral-500">
@@ -141,7 +154,7 @@ function LoginPage() {
                   Log in
                 </h2>
                 <p className="mt-1 text-sm text-neutral-600">
-                  Use your email and password to continue.
+                  Use your Referral code and password to continue.
                 </p>
               </div>
 
@@ -160,17 +173,16 @@ function LoginPage() {
                     htmlFor="email"
                     className="block text-sm font-medium text-neutral-800 mb-1.5"
                   >
-                    Email
+                    Referral Code
                   </label>
                   <div className="relative">
                     <input
                       id="email"
-                      type="email"
+                      type="text"
                       className={`${inputClass} pl-11`}
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      autoComplete="email"
+                      placeholder="Your Referral code"
                       required
                     />
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
@@ -241,7 +253,10 @@ function LoginPage() {
 
               <div className="mt-6 rounded-3xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700">
                 Don&apos;t have an account?{" "}
-                <Link to="/signup" className="font-semibold text-neutral-900 hover:underline">
+                <Link
+                  to="/signup"
+                  className="font-semibold text-neutral-900 hover:underline"
+                >
                   Sign up
                 </Link>
               </div>

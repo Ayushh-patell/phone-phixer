@@ -283,6 +283,14 @@ function Dashboard() {
                       <FiStar className="h-4 w-4" />
                       {user?.star?.name || "Star"}
                     </div>
+
+                    <div
+                      onClick={handleLogout}
+                     className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-black px-3 py-1.5 text-xs text-neutral-100">
+                      Logout
+                    </div>
+
+
                   </div>
                 </div>
               </div>

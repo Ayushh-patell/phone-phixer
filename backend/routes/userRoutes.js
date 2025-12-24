@@ -21,7 +21,7 @@ const router = express.Router();
 // ====== USER CREATION ======
 router.post("/register", async (req, res) => {
   try {
-    const {
+    let {
       name,
       email,
       password,
@@ -31,6 +31,7 @@ router.post("/register", async (req, res) => {
       deviceBrand,
       deviceModel,
       deviceImei,
+      dob,
     } = req.body || {};
 
     // Check if all required fields are provided
@@ -66,6 +67,7 @@ router.post("/register", async (req, res) => {
       name,
       email,
       phone: phone || null,
+      dob: dob || null, 
       password: hash,
       verified: false,
       aadhaarVerified: false,
@@ -73,25 +75,60 @@ router.post("/register", async (req, res) => {
       deviceBrand: deviceBrand || null,
       deviceModel: deviceModel || null,
       deviceImei: deviceImei || null,
+      // referredBy stays null here if you're using the tree placement later
     };
 
-    // Optional referral
-    if (referralCode) {
-      const referrer = await User.findOne({ referralCode });
-      if (referrer) {
-        userData.referredBy = referrer._id;
+    // ===== referral logic (only if referralCode is sent) =====
+    let referrer = null;
+
+    if (referralCode !== undefined && referralCode !== null) {
+      referralCode = String(referralCode).trim();
+
+      // if it's an empty string, treat as "not sent"
+      if (referralCode.length > 0) {
+        const formattedCode = referralCode.toLowerCase().startsWith("pp")
+          ? referralCode.slice(2)
+          : referralCode;
+
+        if (!formattedCode) {
+          return res.status(400).json({ message: "Invalid referral code" });
+        }
+
+        // Find the referrer by referralCode (correct query)
+        referrer = await User.findOne({ referralCode: formattedCode });
+        if (!referrer) {
+          return res.status(400).json({ message: "Invalid referral code" });
+        }
+
+        // set sponsor like /use-code does
+        userData.referralUsed = referrer._id;
+
+        // If you STILL want the old behavior too, uncomment this:
+        // userData.referredBy = referrer._id;
       }
     }
 
     // Create user
     const user = await User.create(userData);
 
-    res.status(201).json({ message: "User created", userId: user._id });
+    // Add new user to referrer's request queue (if referral was provided & valid)
+    if (referrer) {
+      await User.updateOne(
+        { _id: referrer._id },
+        { $addToSet: { referralRequest: user._id } }
+      );
+    }
+
+    return res.status(201).json({
+      message: "User created",
+      userId: user._id,
+    });
   } catch (error) {
     console.error("REGISTER ERROR:", error);
-    res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 });
+
 
 // ====== AADHAAR OTP: SEND ======
 router.post("/aadhaar/send-otp", async (req, res) => {
@@ -158,7 +195,7 @@ router.post("/aadhaar/send-otp", async (req, res) => {
       expiresAt: new Date(Date.now() + 5 * 60 * 1000),
     });
 
-    user.adhaarNumber = aadhaarNumber;
+    user.aadhaarNumber = aadhaarNumber;
     await user.save();
 
     return res.json({
@@ -272,8 +309,6 @@ const sandboxRes = await axios.post(
 });
 
 
-
-
 // ====== EMAIL VERIFICATION ======
 router.post("/send-email-verification", async (req, res) => {
   try {
@@ -320,7 +355,6 @@ router.post("/send-email-verification", async (req, res) => {
 });
 
 
-
 // ====== CODE VERTIFICATION ======
 router.post("/verify-code", async (req, res) => {
   try {
@@ -360,7 +394,7 @@ router.post("/verify-code", async (req, res) => {
     await User.findByIdAndUpdate(userId, { verified: true, referralCode: refCode });
     await Code.deleteMany({ userId, type: "email_verify" });
 
-    res.json({ message: "Email verified successfully" });
+    res.json({ message: "Email verified successfully", referralCode:user.referralCode });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error" });
@@ -370,56 +404,69 @@ router.post("/verify-code", async (req, res) => {
 
 // ====== USER LOGIN ======
 router.post("/login", async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    let { email, password } = req.body;
 
-        // Check required fields
-        if (!email || !password) {
-            return res.status(400).json({ message: "Email and password are required" });
-        }
-
-        const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(400).json({ message: "User not found" });
-        }
-
-        // Check if verified
-        if (!user.verified) {
-            return res.status(400).json({ message: "Please verify your email first" });
-        }
-
-        // Compare password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(400).json({ message: "Incorrect password" });
-        }
-
-        // Create JWT token
-        const token = jwt.sign(
-            {
-                id: user._id,
-                email: user.email,
-                admin: user.admin ?? false,   // depends on your user schema
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: "7d" }
-        );
-
-        res.json({
-            message: "Login successful",
-            token,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                admin: user.admin ?? false,
-            }
-        });
-
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Server error" });
+    // Check required fields
+    if (!email || !password) {
+      return res.status(400).json({ message: "Referral and password are required" });
     }
+
+    email = String(email).trim();
+
+    // 1) Try normal email login
+    const userByEmail = await User.findOne({ email });
+
+    // 2) Also allow "login by referral code" using the same input field
+    // If it starts with "pp" (any case), strip it
+    const formattedCode = email.toLowerCase().startsWith("pp")
+      ? email.slice(2)
+      : email;
+
+    const userByReferral = await User.findOne({ referralCode: formattedCode });
+
+    if (!userByEmail && !userByReferral) {
+      return res.status(400).json({ message: "User not found" });
+    }
+
+    const validUser = userByEmail || userByReferral;
+
+    // Check if verified
+    if (!validUser.verified) {
+      return res.status(400).json({ message: "Please verify your email first" });
+    }
+
+    // Compare password
+    const isMatch = await bcrypt.compare(password, validUser.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Incorrect password" });
+    }
+
+    // Create JWT token (VALID FOR 1 DAY)
+    const token = jwt.sign(
+      {
+        id: validUser._id,
+        email: validUser.email,
+        admin: validUser.role === "admin",
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" } // or "24h"
+    );
+
+    return res.json({
+      message: "Login successful",
+      token,
+      validUser: {
+        id: validUser._id,
+        name: validUser.name,
+        email: validUser.email,
+        admin: validUser.role === "admin",
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Server error" });
+  }
 });
 
 
@@ -451,7 +498,7 @@ router.post("/verify-token", async (req, res) => {
       return res.status(401).json({ valid: false, message: "Invalid token" });
     }
 
-    const user = await User.findById(decoded.id).select("_id name email admin verified star Totalrsp aadhaarVerified referralActive");
+    const user = await User.findById(decoded.id).select("_id name email admin role verified star Totalrsp aadhaarVerified referralActive");
     if (!user) {
       return res.status(404).json({ valid: false, message: "User not found" });
     }
@@ -694,26 +741,42 @@ router.get("/me", protect, async (req, res) => {
 // ====== USE REFERRAL CODE ======
 router.post("/use-code", protect, async (req, res) => {
   try {
-    const { referralCode } = req.body;
+    let { referralCode } = req.body;
 
     if (!referralCode) {
       return res.status(400).json({ message: "Referral code required" });
     }
 
+        // normalize input
+    referralCode = String(referralCode).trim();
+    
+    // if referralCode starts with "pp" (any case), remove it; else use as-is
+    const formattedCode = referralCode.toLowerCase().startsWith("pp")
+      ? referralCode.slice(2)
+      : referralCode;
+
+    if (!formattedCode) {
+      return res.status(400).json({ message: "Invalid referral code" });
+    }
     const user = await User.findById(req.user.id);
     if (!user) {
       return res.status(400).json({ message: "User not found" });
     }
 
+    // normalize own code too (recommended)
+const userOwnCode = String(user.referralCode || "").trim();
+const userOwnFormatted = userOwnCode.toLowerCase().startsWith("pp")
+  ? userOwnCode.slice(2)
+  : userOwnCode;
+
     // Can't use own code
-    if (user.referralCode && user.referralCode === referralCode) {
-      return res
-        .status(400)
-        .json({ message: "Cannot use your own referral code" });
+    if (userOwnFormatted && userOwnFormatted === formattedCode) {
+      return res.status(400).json({ message: "Cannot use your own referral code" });
     }
 
     // Find the referrer by referralCode
-    const referrer = await User.findOne({ referralCode });
+    const referrer = await User.findOne({ referralCode: formattedCode });
+
     if (!referrer) {
       return res.status(400).json({ message: "Invalid referral code" });
     }

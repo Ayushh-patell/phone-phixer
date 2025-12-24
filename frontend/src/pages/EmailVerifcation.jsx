@@ -74,9 +74,11 @@ function VerifyEmailPage() {
     setInfo("");
     setVerifying(true);
     try {
-      await verifyEmailCode({ userId, code: clean });
+      const res = await verifyEmailCode({ userId, code: clean });
+
       setInfo("Email verified. Redirecting…");
-      setTimeout(() => navigate("/login"), 900);
+      sessionStorage.setItem('referralCode', res.referralCode);
+      setTimeout(() => navigate(`/login?ref=${res.referralCode}`), 900);
     } catch (err) {
       setError(err.message || "Verification failed.");
     } finally {

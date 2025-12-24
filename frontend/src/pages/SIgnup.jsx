@@ -13,6 +13,7 @@ import {
   FiHash,
   FiAlertTriangle,
   FiCheckCircle,
+  FiCalendar,
 } from "react-icons/fi";
 import { HiOutlineDevicePhoneMobile } from "react-icons/hi2";
 
@@ -22,6 +23,7 @@ function SignupPage() {
   const [form, setForm] = useState({
     name: "",
     email: "",
+    dob: "", // NEW
     password: "",
     confirmPassword: "",
     phone: "",
@@ -29,6 +31,7 @@ function SignupPage() {
     deviceBrand: "",
     deviceModel: "",
     deviceImei: "",
+    referralCode: "", // NEW (optional)
   });
 
   const [showPassword, setShowPassword] = useState(false);
@@ -52,7 +55,30 @@ function SignupPage() {
 
   function handleChange(e) {
     const { name, value } = e.target;
+
+    // Keep IMEI digits-only (optional but helps)
+    if (name === "deviceImei") {
+      const digitsOnly = value.replace(/\D/g, "");
+      setForm((prev) => ({ ...prev, [name]: digitsOnly }));
+      return;
+    }
+
     setForm((prev) => ({ ...prev, [name]: value }));
+  }
+
+  function calculateAge(dobStr) {
+    // dobStr expected like "YYYY-MM-DD" from <input type="date">
+    const dob = new Date(dobStr);
+    if (Number.isNaN(dob.getTime())) return null;
+
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+
+    const m = today.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+      age -= 1;
+    }
+    return age;
   }
 
   async function handleSubmit(e) {
@@ -65,23 +91,45 @@ function SignupPage() {
       return;
     }
 
+    // DOB required + 18+ check
+    const dobTrimmed = String(form.dob || "").trim();
+    if (!dobTrimmed) {
+      setError("Date of birth is required.");
+      return;
+    }
+    const age = calculateAge(dobTrimmed);
+    if (age === null) {
+      setError("Please enter a valid date of birth.");
+      return;
+    }
+    if (age < 18) {
+      setError("You must be at least 18 years old to sign up.");
+      return;
+    }
+
+    // IMEI: if provided, must be 15 chars
     const imei = form.deviceImei.trim();
     if (imei && imei.length !== 15) {
       setError("IMEI must be 15 digits.");
       return;
     }
 
+    // Optional referral code
+    const referralCode = form.referralCode.trim();
+
     setLoading(true);
     try {
       const payload = {
         name: form.name.trim(),
         email: form.email.trim(),
+        dob: dobTrimmed, // NEW (string)
         password: form.password,
         phone: form.phone.trim() || undefined,
         address: form.address.trim() || undefined,
         deviceBrand: form.deviceBrand.trim() || undefined,
         deviceModel: form.deviceModel.trim() || undefined,
         deviceImei: imei || undefined,
+        referralCode: referralCode || undefined, // NEW (optional)
       };
 
       const data = await registerUser(payload);
@@ -151,18 +199,6 @@ function SignupPage() {
                     <p>Email verification keeps your account secure.</p>
                   </div>
                 </div>
-
-                {/* <div className="mt-8 rounded-2xl border border-neutral-200 bg-white p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-xl bg-prim/20 ring-1 ring-prim/30 text-neutral-900">
-                      <FiHash className="h-5 w-5" />
-                    </div>
-                    <p className="text-xs text-neutral-600">
-                      IMEI is optional, but helps identify your device faster
-                      (15 digits).
-                    </p>
-                  </div>
-                </div> */}
               </div>
 
               <div className="mt-10 text-xs text-neutral-500">
@@ -261,6 +297,30 @@ function SignupPage() {
                   </div>
                 </div>
 
+                {/* DOB (NEW) */}
+                <div>
+                  <label htmlFor="dob" className={labelClass}>
+                    Date of birth
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="dob"
+                      name="dob"
+                      type="date"
+                      className={`${inputClass} pl-11`}
+                      value={form.dob}
+                      onChange={handleChange}
+                      required
+                    />
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
+                      <FiCalendar className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-neutral-500">
+                    You must be 18+ to create an account.
+                  </p>
+                </div>
+
                 {/* Phone + IMEI */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -302,6 +362,31 @@ function SignupPage() {
                       <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
                         <FiHash className="h-5 w-5" />
                       </div>
+                    </div>
+                    <p className="mt-2 text-xs text-neutral-500">
+                      If you enter an IMEI, it must be exactly 15 digits.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Referral Code (NEW, optional) */}
+                <div>
+                  <label htmlFor="referralCode" className={labelClass}>
+                    Referral code{" "}
+                    <span className="text-neutral-400">(optional)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="referralCode"
+                      name="referralCode"
+                      className={`${inputClass} pl-11`}
+                      value={form.referralCode}
+                      onChange={handleChange}
+                      placeholder="PP12345 or 12345"
+                      autoComplete="off"
+                    />
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
+                      <FiHash className="h-5 w-5" />
                     </div>
                   </div>
                 </div>

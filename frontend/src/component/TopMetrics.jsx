@@ -124,7 +124,7 @@ const TopMetrics = () => {
       setLoading(true);
       setError("");
 
-      const token = localStorage.getItem("token");
+      const token = sessionStorage.getItem("token");
       if (!token) {
         setError("No auth token found. Please log in again.");
         setLoading(false);
@@ -192,7 +192,7 @@ const TopMetrics = () => {
 
     try {
       setApplyLoading(true);
-      const token = localStorage.getItem("token");
+      const token = sessionStorage.getItem("token");
       if (!token) {
         setApplyError("No auth token found. Please log in again.");
         setApplyLoading(false);
@@ -222,7 +222,7 @@ const TopMetrics = () => {
 
     try {
       setJoinLoading(true);
-      const token = localStorage.getItem("token");
+      const token = sessionStorage.getItem("token");
       if (!token) {
         setJoinError("No auth token found. Please log in again.");
         setJoinLoading(false);

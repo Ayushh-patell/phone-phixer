@@ -1,12 +1,27 @@
 import express from "express";
 const router = express.Router();
 
-
-
-
-
 import Purchase from "../models/Purchase.js";
 import { protect } from "../middleware/authMiddleware.js";
+
+/**
+ * Helper: determine if purchase is refunded (full or partial)
+ * Works even if you didn't add "refunded"/"partial_refunded" to status enum.
+ */
+function isRefundedPurchase(p) {
+  const s = (p.status || "").toString().toLowerCase();
+  if (s === "refunded" || s === "partial_refunded") return true;
+
+  const refundedWallet = Number(p.refundedWalletAmount || 0);
+  const refundedRazorpay = Number(p.refundedRazorpayAmount || 0);
+  const refundedAt = p.refundedAt ? new Date(p.refundedAt) : null;
+
+  if (refundedAt && !Number.isNaN(refundedAt.getTime())) return true;
+  if (refundedWallet > 0 || refundedRazorpay > 0) return true;
+
+  return false;
+}
+
 /**
  * @route   GET /api/purchases/admin
  * @desc    Get all purchases (admin only) with optional date range
@@ -41,16 +56,11 @@ router.get("/admin", protect, async (req, res) => {
         if (isNaN(end.getTime())) {
           return res.status(400).json({ message: "Invalid endDate" });
         }
-        // include full end day
         end.setHours(23, 59, 59, 999);
         dateFilter.$lte = end;
       }
 
-      // match purchases either created OR renewed in this range
-      filter.$or = [
-        { createdAt: dateFilter },
-        { renewedAt: dateFilter },
-      ];
+      filter.$or = [{ createdAt: dateFilter }, { renewedAt: dateFilter }];
     }
 
     const purchases = await Purchase.find(filter)
@@ -63,9 +73,8 @@ router.get("/admin", protect, async (req, res) => {
 
     const purchasesWithValidity = purchases.map((p) => {
       const obj = p.toObject();
-      const service = obj.serviceId; // populated Service
+      const service = obj.serviceId;
 
-      // base date = renewedAt if exists, else createdAt
       const baseDateRaw = obj.renewedAt || obj.createdAt;
       const baseDate = baseDateRaw ? new Date(baseDateRaw) : null;
 
@@ -76,9 +85,7 @@ router.get("/admin", protect, async (req, res) => {
       const validityDays = service?.validityDays || 0;
 
       if (baseDate && validityDays > 0) {
-        const expiryDate = new Date(
-          baseDate.getTime() + validityDays * MS_PER_DAY
-        );
+        const expiryDate = new Date(baseDate.getTime() + validityDays * MS_PER_DAY);
         expiresAt = expiryDate;
 
         if (now < expiryDate) {
@@ -91,6 +98,9 @@ router.get("/admin", protect, async (req, res) => {
         }
       }
 
+      // ✅ NEW: block renew if refunded
+      const refunded = isRefundedPurchase(obj);
+
       return {
         ...obj,
         validity: {
@@ -99,6 +109,9 @@ router.get("/admin", protect, async (req, res) => {
           expiresAt,
           validityDays,
         },
+        // ✅ frontend can use this to hide/disable renew buttons
+        canRenew: !refunded,
+        refunded,
       };
     });
 
@@ -145,11 +158,7 @@ router.get("/me", protect, async (req, res) => {
         dateFilter.$lte = end;
       }
 
-      // match purchases either created OR renewed in this range
-      filter.$or = [
-        { createdAt: dateFilter },
-        { renewedAt: dateFilter },
-      ];
+      filter.$or = [{ createdAt: dateFilter }, { renewedAt: dateFilter }];
     }
 
     const purchases = await Purchase.find(filter)
@@ -161,9 +170,8 @@ router.get("/me", protect, async (req, res) => {
 
     const purchasesWithValidity = purchases.map((p) => {
       const obj = p.toObject();
-      const service = obj.serviceId; // populated Service
+      const service = obj.serviceId;
 
-      // base date = renewedAt if exists, else createdAt
       const baseDateRaw = obj.renewedAt || obj.createdAt;
       const baseDate = baseDateRaw ? new Date(baseDateRaw) : null;
 
@@ -174,9 +182,7 @@ router.get("/me", protect, async (req, res) => {
       const validityDays = service?.validityDays || 0;
 
       if (baseDate && validityDays > 0) {
-        const expiryDate = new Date(
-          baseDate.getTime() + validityDays * MS_PER_DAY
-        );
+        const expiryDate = new Date(baseDate.getTime() + validityDays * MS_PER_DAY);
         expiresAt = expiryDate;
 
         if (now < expiryDate) {
@@ -189,6 +195,9 @@ router.get("/me", protect, async (req, res) => {
         }
       }
 
+      // ✅ NEW: block renew if refunded
+      const refunded = isRefundedPurchase(obj);
+
       return {
         ...obj,
         validity: {
@@ -197,6 +206,9 @@ router.get("/me", protect, async (req, res) => {
           expiresAt,
           validityDays,
         },
+        // ✅ frontend can use this to hide/disable renew buttons
+        canRenew: !refunded,
+        refunded,
       };
     });
 
@@ -209,6 +221,5 @@ router.get("/me", protect, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
-
 
 export default router;

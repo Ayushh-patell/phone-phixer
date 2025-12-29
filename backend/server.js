@@ -8,9 +8,11 @@ import serviceRoutes from "./routes/serviceRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import referralRoutes from "./routes/referralRoutes.js";
 import settingsRoutes from "./routes/universalSettingsRoutes.js";
+import starEligibilityCheckRoutes from "./routes/eligibilityCheck.js";
 import starEligibilityRoutes from "./routes/starEligibilityRoutes.js";
 import checkRoutes from "./routes/checkRoutes.js";
 import purchaseRoutes from "./routes/purchasesRoutes.js";
+import refundsRoutes from "./routes/refundRoutes.js";
 
 
 
@@ -33,10 +35,12 @@ app.use("/api/users", userRoutes);
 app.use("/api/service", serviceRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/referrals", referralRoutes);
+app.use("/api/star-eligibility-check", starEligibilityCheckRoutes);
 app.use("/api/settings/star-eligibility", starEligibilityRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/checks", checkRoutes);
 app.use("/api/purchases", purchaseRoutes);
+app.use("/api/refunds", refundsRoutes);
 
 
 // Start Server

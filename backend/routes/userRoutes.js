@@ -515,7 +515,7 @@ const needed = (user.referralActive && !user.aadhaarVerified)
         id: user._id,
         name: user.name,
         email: user.email,
-        admin: user.admin ?? false,
+        admin: user.role === "admin",
         star:userStars,
         rsp:user.Totalrsp,
         verified: user.verified,

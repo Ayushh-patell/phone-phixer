@@ -348,7 +348,7 @@ const ReferralTree = () => {
 
   useEffect(() => {
     const init = async () => {
-      const token = localStorage.getItem("token");
+      const token = sessionStorage.getItem("token");
       if (!token) {
         const msg = "No auth token found. Please log in again.";
         setTreeError(msg);
@@ -477,7 +477,7 @@ const ReferralTree = () => {
 
     if (!selectedPlacementUser || !selectedPosition) return;
 
-    const token = localStorage.getItem("token");
+    const token = sessionStorage.getItem("token");
     if (!token) {
       setPlacementError("No auth token found. Please log in again.");
       return;

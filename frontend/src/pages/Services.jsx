@@ -23,7 +23,7 @@ const ServicePage = () => {
     };
 
     // If you want to fall back to localStorage later, you can use:
-    // const token = localStorage.getItem("token") || TEST_JWT;
+    // const token = sessionStorage.getItem("token") || TEST_JWT;
     // return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
   };
 

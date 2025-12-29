@@ -17,7 +17,7 @@ const StarsSection = () => {
         setLoading(true);
         setErr("");
 
-        const token = localStorage.getItem("token");
+        const token = sessionStorage.getItem("token");
         const res = await axios.get(`${API_BASE_URL}/users/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });

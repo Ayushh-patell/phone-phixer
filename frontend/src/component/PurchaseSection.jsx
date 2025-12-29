@@ -10,6 +10,7 @@ import {
   FiSmartphone,
   FiHash,
   FiRefreshCw,
+  FiRotateCcw,
 } from "react-icons/fi";
 
 // TEMP: hardcoded JWT for testing (fallback)
@@ -22,6 +23,9 @@ const RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 // Razorpay minimum chargeable amount (in INR, not paise)
 const RAZORPAY_MIN_AMOUNT = 1;
 
+// Refund window (days)
+const REFUND_WINDOW_DAYS = 7;
+
 const PurchasesSection = () => {
   const [purchases, setPurchases] = useState([]);
   const [loadingPurchases, setLoadingPurchases] = useState(false);
@@ -32,8 +36,10 @@ const PurchasesSection = () => {
   const [useWallet, setUseWallet] = useState(true);
   const [paymentLoadingId, setPaymentLoadingId] = useState(null);
 
+  const [refundLoadingId, setRefundLoadingId] = useState(null);
+
   const authConfig = () => {
-    const token = localStorage.getItem("token") || TEST_JWT;
+    const token = sessionStorage.getItem("token") || TEST_JWT;
     return token ? { headers: { Authorization: `Bearer ${token}` } } : { headers: {} };
   };
 
@@ -52,6 +58,53 @@ const PurchasesSection = () => {
       month: "short",
       day: "numeric",
     });
+  };
+
+  const formatDateTime = (dateStr) => {
+    if (!dateStr) return "-";
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return "-";
+    return d.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const basePurchaseDate = (purchase) => {
+    const base = purchase?.renewedAt || purchase?.createdAt;
+    const d = base ? new Date(base) : null;
+    if (!d || Number.isNaN(d.getTime())) return null;
+    return d;
+  };
+
+  const withinRefundWindow = (purchase) => {
+    const d = basePurchaseDate(purchase);
+    if (!d) return false;
+    const deadline = new Date(d.getTime() + REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    return new Date() <= deadline;
+  };
+
+  const refundDaysLeft = (purchase) => {
+    const d = basePurchaseDate(purchase);
+    if (!d) return 0;
+    const deadline = new Date(d.getTime() + REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const diffMs = deadline.getTime() - new Date().getTime();
+    return Math.max(0, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
+  };
+
+  const isRefunded = (purchase) => {
+    // backend already returns refunded/canRenew, but fallback just in case
+    if (purchase?.refunded === true) return true;
+    const s = (purchase?.status || "").toString().toLowerCase();
+    if (s === "refunded" || s === "partial_refunded") return true;
+    const w = Number(purchase?.refundedWalletAmount || 0);
+    const r = Number(purchase?.refundedRazorpayAmount || 0);
+    if (purchase?.refundedAt) return true;
+    if (w > 0 || r > 0) return true;
+    return false;
   };
 
   const fetchPurchases = async () => {
@@ -174,6 +227,15 @@ const PurchasesSection = () => {
   };
 
   const getValidityBadge = (purchase) => {
+    if (isRefunded(purchase)) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-semibold text-neutral-800">
+          <FiRotateCcw className="h-3.5 w-3.5" />
+          Refunded
+        </span>
+      );
+    }
+
     const validity = purchase.validity || {};
     const expired = !!validity.expired;
     const daysLeft = Number(validity.daysLeft ?? 0);
@@ -204,10 +266,45 @@ const PurchasesSection = () => {
     );
   };
 
+  const handleRefund = async (purchase) => {
+    try {
+      setRefundLoadingId(purchase._id);
+      setError("");
+
+      const ok = window.confirm(
+        "Request a refund for this purchase?\n\nWallet payments refund instantly. Razorpay refunds require admin approval."
+      );
+      if (!ok) return;
+
+      const reason = window.prompt("Reason for refund (optional):", "") || "";
+
+      const res = await axios.post(
+        `${API_BASE_URL}/refunds/request`,
+        { purchaseId: purchase._id, reason },
+        authConfig()
+      );
+
+      alert(res.data?.message || "Refund request submitted.");
+      await fetchWalletBalance();
+      await fetchPurchases();
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Refund request failed.");
+    } finally {
+      setRefundLoadingId(null);
+    }
+  };
+
   const handleRenew = async (purchase) => {
     try {
       setPaymentLoadingId(purchase._id);
       setError("");
+
+      // ✅ block renew if refunded (server also exposes canRenew)
+      if (purchase.canRenew === false || isRefunded(purchase)) {
+        setError("Refunded purchases can’t be renewed.");
+        return;
+      }
 
       const service = purchase.serviceId || {};
       const price = Number(service.price || purchase.amountPaid || 0);
@@ -317,7 +414,7 @@ const PurchasesSection = () => {
                 My purchases
               </h1>
               <p className="mt-1 text-sm text-neutral-600">
-                Renew expired services anytime.
+                Renew expired services anytime. Refunds available for 7 days.
               </p>
             </div>
 
@@ -371,7 +468,16 @@ const PurchasesSection = () => {
             const validity = purchase.validity || {};
             const expired = !!validity.expired;
             const daysLeft = Number(validity.daysLeft ?? 0);
+
             const isPaying = paymentLoadingId === purchase._id;
+            const isRefunding = refundLoadingId === purchase._id;
+
+            const refunded = isRefunded(purchase);
+            const canRenew = purchase.canRenew !== false && !refunded;
+
+            const canRefund = !refunded && withinRefundWindow(purchase);
+
+            const refundLeft = refundDaysLeft(purchase);
 
             return (
               <div
@@ -425,6 +531,21 @@ const PurchasesSection = () => {
                       {validity.validityDays} days
                     </span>
                   )}
+
+                  {/* Refund window pill */}
+                  {!refunded && (
+                    <span
+                      className={[
+                        "inline-flex items-center gap-1 rounded-full border px-3 py-1",
+                        canRefund
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-neutral-200 bg-neutral-50 text-neutral-600",
+                      ].join(" ")}
+                    >
+                      <FiClock className="h-3.5 w-3.5" />
+                      Refund {canRefund ? `${refundLeft} day${refundLeft === 1 ? "" : "s"} left` : "not available"}
+                    </span>
+                  )}
                 </div>
 
                 {(purchase.deviceBrand || purchase.deviceModel || purchase.deviceImei) && (
@@ -456,29 +577,67 @@ const PurchasesSection = () => {
                 <div className="mt-5 flex items-center justify-between gap-3">
                   <div className="text-[11px] text-neutral-600">
                     Status:{" "}
-                    {expired || daysLeft <= 0 ? (
+                    {refunded ? (
+                      <span className="font-semibold text-neutral-800">
+                        Refunded{" "}
+                        {purchase.refundedAt ? (
+                          <span className="text-neutral-500 font-normal">
+                            ({formatDateTime(purchase.refundedAt)})
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : expired || daysLeft <= 0 ? (
                       <span className="font-semibold text-red-700">Expired</span>
                     ) : (
                       <span className="font-semibold text-emerald-700">Active</span>
                     )}
                   </div>
 
-                  {expired && (
-                    <button
-                      onClick={() => handleRenew(purchase)}
-                      disabled={isPaying}
-                      className={[
-                        "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition",
-                        "focus:outline-none focus:ring-2 focus:ring-prim/40",
-                        isPaying
-                          ? "bg-neutral-200 text-neutral-600 cursor-not-allowed"
-                          : "bg-prim text-neutral-900 hover:opacity-95",
-                      ].join(" ")}
-                    >
-                      <FiRefreshCw className="h-4 w-4" />
-                      {isPaying ? "Processing…" : "Renew"}
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {/* Refund button */}
+                    {canRefund && (
+                      <button
+                        onClick={() => handleRefund(purchase)}
+                        disabled={isRefunding || isPaying}
+                        className={[
+                          "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition",
+                          "focus:outline-none focus:ring-2 focus:ring-amber-300/40",
+                          isRefunding || isPaying
+                            ? "bg-neutral-200 text-neutral-600 cursor-not-allowed"
+                            : "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100",
+                        ].join(" ")}
+                        title="Request refund (wallet refunds instant; Razorpay refunds require approval)"
+                      >
+                        <FiRotateCcw className="h-4 w-4" />
+                        {isRefunding ? "Requesting…" : "Refund"}
+                      </button>
+                    )}
+
+                    {/* Renew button (only if expired AND can renew) */}
+                    {expired && canRenew && (
+                      <button
+                        onClick={() => handleRenew(purchase)}
+                        disabled={isPaying || isRefunding}
+                        className={[
+                          "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition",
+                          "focus:outline-none focus:ring-2 focus:ring-prim/40",
+                          isPaying || isRefunding
+                            ? "bg-neutral-200 text-neutral-600 cursor-not-allowed"
+                            : "bg-prim text-neutral-900 hover:opacity-95",
+                        ].join(" ")}
+                      >
+                        <FiRefreshCw className="h-4 w-4" />
+                        {isPaying ? "Processing…" : "Renew"}
+                      </button>
+                    )}
+
+                    {/* Renew blocked message */}
+                    {expired && !canRenew && (
+                      <div className="text-xs font-semibold text-red-700">
+                        Refunded purchases can’t be renewed
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );

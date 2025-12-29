@@ -43,7 +43,7 @@ const YearlyChecksCompact = () => {
       setLoading(true);
       setError("");
 
-      const token = localStorage.getItem("token");
+      const token = sessionStorage.getItem("token");
       if (!token) {
         setError("No auth token found. Please log in again.");
         setLoading(false);

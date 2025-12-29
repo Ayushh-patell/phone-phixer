@@ -17,8 +17,12 @@ import {
   FiMenu,
   FiX,
   FiActivity,
+  FiSettings,
+  FiList,
 } from "react-icons/fi";
 import StarEligibilitySection from "./component/StarEligibility";
+import SettingsSection from "./component/SettingsSection";
+import RequestSection from "./component/RequestSection";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -29,7 +33,7 @@ function Dashboard() {
 
   useEffect(() => {
     async function checkAuth() {
-      const token = localStorage.getItem("token");
+      const token = sessionStorage.getItem("token");
       if (!token) {
         navigate("/login", { replace: true });
         return;
@@ -45,6 +49,7 @@ function Dashboard() {
           );
           return;
         }
+        
 
         if (data.valid) {
           setUser(data.user || null);
@@ -78,6 +83,8 @@ function Dashboard() {
     if (activeTab === "purchases") return "Purchases";
     if (activeTab === "stats") return "Stats";
     if (activeTab === "stars") return "Stars";
+    if (activeTab === "settings") return "Settings";
+    if (activeTab === "request") return "Request";
     return "Dashboard";
   }, [activeTab]);
 
@@ -172,6 +179,11 @@ function Dashboard() {
                 <NavButton id="purchases" label="Purchases" Icon={FiShoppingBag} />
                 <NavButton id="stats" label="Stats" Icon={FiActivity} />
                 <NavButton id="stars" label="Star" Icon={FiAward} />
+                <NavButton id="request" label="Request" Icon={FiList} />
+
+                {user.admin &&
+                  <NavButton id="settings" label="Settings" Icon={FiSettings} />
+                }
               </div>
 
               <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
@@ -218,6 +230,10 @@ function Dashboard() {
             <NavButton id="purchases" label="Purchases" Icon={FiShoppingBag} />
             <NavButton id="stats" label="Stats" Icon={FiActivity} />
             <NavButton id="stars" label="Star" Icon={FiAward} />
+            <NavButton id="request" label="Request" Icon={FiList} />
+            {user.admin &&
+            <NavButton id="settings" label="Settings" Icon={FiSettings} />
+            }
           </nav>
 
           {/* User */}
@@ -264,6 +280,10 @@ function Dashboard() {
                         ? "Your purchases and history."
                         : activeTab === "stats"
                         ? "Your personal Stats"
+                        : activeTab === "settings"
+                        ? "Admin Settings Panel"
+                        : activeTab === "request"
+                        ? "Request Panel"
                         : "Your star level and benefits."}
                     </div>
                   </div>
@@ -301,6 +321,8 @@ function Dashboard() {
             {activeTab === "purchases" && <PurchasesSection />}
             {activeTab === "stats" && <StarsSection />}
             {activeTab === "stars" && <StarEligibilitySection />}
+            {activeTab === "settings" && <SettingsSection />}
+            {activeTab === "request" && <RequestSection user={user} />}
           </main>
         </div>
       </div>

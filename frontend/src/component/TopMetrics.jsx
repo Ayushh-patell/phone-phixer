@@ -13,7 +13,9 @@ import {
   FiUsers,
   FiGift,
   FiLink,
+  FiX, FiSend
 } from "react-icons/fi";
+
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -89,6 +91,19 @@ const TopMetrics = () => {
   const [joinSuccess, setJoinSuccess] = useState("");
   const [referralCodeInput, setReferralCodeInput] = useState("");
   const [copied, setCopied] = useState(false);
+
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [withdrawError, setWithdrawError] = useState("");
+  const [withdrawSuccess, setWithdrawSuccess] = useState("");
+
+  const [withdrawForm, setWithdrawForm] = useState({
+    amount: "",
+    name: "",
+    accountNumber: "",
+    ifsc: "",
+  });
+
 
   const [referralUvThreshold, setReferralUvThreshold] = useState(5);
 
@@ -340,12 +355,20 @@ const TopMetrics = () => {
           sub="Current UV on the right side of your tree."
           Icon={FiArrowRight}
         />
-        <MetricCard
-          label="Wallet Balance"
-          value={`₹${Number(walletBalance || 0).toFixed(2)}`}
-          sub="Current wallet balance."
-          Icon={FiCreditCard}
-        />
+      <MetricCard
+        label="Wallet Balance"
+        value={`₹${Number(walletBalance || 0).toFixed(2)}`}
+        sub={
+          <button
+            onClick={() => setShowWithdrawModal(true)}
+            className="mt-2 inline-flex items-center gap-2 rounded-lg border border-prim/40 bg-prim/20 px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-prim/30 transition"
+          >
+            <FiSend className="h-3.5 w-3.5" />
+            Withdraw
+          </button>
+        }
+        Icon={FiCreditCard}
+      />
       </section>
 
       {/* Referral + Sponsor/Placement */}
@@ -546,6 +569,180 @@ const TopMetrics = () => {
           </div>
         </div>
       </section>
+
+
+{showWithdrawModal && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+    <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-xl">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-neutral-200 p-4">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Withdraw wallet balance
+        </h2>
+        <button
+          onClick={() => setShowWithdrawModal(false)}
+          className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100"
+        >
+          <FiX className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Body */}
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setWithdrawError("");
+          setWithdrawSuccess("");
+
+          const amt = Number(withdrawForm.amount);
+
+          if (!Number.isFinite(amt) || amt < 100) {
+            return setWithdrawError("Minimum withdrawal amount is ₹100.");
+          }
+
+          if (amt > Number(walletBalance || 0)) {
+            return setWithdrawError("Amount exceeds wallet balance.");
+          }
+
+          const { name, accountNumber, ifsc } = withdrawForm;
+          if (!name || !accountNumber || !ifsc) {
+            return setWithdrawError("Please fill all bank details.");
+          }
+
+          try {
+            setWithdrawLoading(true);
+            const token = sessionStorage.getItem("token");
+
+            await axios.post(
+              `${API_BASE_URL}/withdrawals/request`,
+              {
+                amount: amt,
+                bank: {
+                  name: name.trim(),
+                  accountNumber: accountNumber.trim(),
+                  ifsc: ifsc.trim().toUpperCase(),
+                },
+              },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            setWithdrawSuccess("Withdrawal request submitted for approval.");
+            setWithdrawForm({
+              amount: "",
+              name: "",
+              accountNumber: "",
+              ifsc: "",
+            });
+
+            await fetchUserInfo(); // refresh wallet balance
+          } catch (err) {
+            setWithdrawError(
+              err.response?.data?.message || "Failed to request withdrawal."
+            );
+          } finally {
+            setWithdrawLoading(false);
+          }
+        }}
+        className="p-4 space-y-4"
+      >
+        {/* Amount */}
+        <div>
+          <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+            Amount (₹)
+          </label>
+          <input
+            type="number"
+            min="100"
+            placeholder="Minimum ₹100"
+            value={withdrawForm.amount}
+            onChange={(e) =>
+              setWithdrawForm({ ...withdrawForm, amount: e.target.value })
+            }
+            className={inputClass}
+          />
+        </div>
+
+        {/* Account Holder */}
+        <div>
+          <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+            Account holder name
+          </label>
+          <input
+            value={withdrawForm.name}
+            onChange={(e) =>
+              setWithdrawForm({ ...withdrawForm, name: e.target.value })
+            }
+            className={inputClass}
+            placeholder="As per bank records"
+          />
+        </div>
+
+        {/* Account Number */}
+        <div>
+          <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+            Account number
+          </label>
+          <input
+            value={withdrawForm.accountNumber}
+            onChange={(e) =>
+              setWithdrawForm({
+                ...withdrawForm,
+                accountNumber: e.target.value,
+              })
+            }
+            className={inputClass}
+            placeholder="e.g. 1234567890"
+          />
+        </div>
+
+        {/* IFSC */}
+        <div>
+          <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+            IFSC code
+          </label>
+          <input
+            value={withdrawForm.ifsc}
+            onChange={(e) =>
+              setWithdrawForm({ ...withdrawForm, ifsc: e.target.value })
+            }
+            className={inputClass}
+            placeholder="e.g. HDFC0001234"
+          />
+        </div>
+
+        {/* Errors / success */}
+        {withdrawError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {withdrawError}
+          </div>
+        )}
+
+        {withdrawSuccess && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {withdrawSuccess}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-xs text-neutral-600">
+            Available: ₹{Number(walletBalance || 0).toFixed(2)}
+          </span>
+
+          <button
+            type="submit"
+            disabled={withdrawLoading}
+            className="inline-flex items-center gap-2 rounded-xl bg-prim px-4 py-2.5 text-sm font-semibold text-neutral-900 shadow-sm hover:opacity-95 disabled:opacity-70"
+          >
+            <FiSend className="h-4 w-4" />
+            {withdrawLoading ? "Submitting..." : "Request withdrawal"}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+
     </>
   );
 };

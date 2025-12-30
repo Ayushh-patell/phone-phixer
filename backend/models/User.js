@@ -118,6 +118,18 @@ const UserSchema = new mongoose.Schema(
     star: { type: Number, default: 1 },
     checksClaimed: { type: Number, default: 0 }, // total checks already redeemed
 
+
+    razorpayX: {
+      contactId: { type: String },          // RazorpayX Contact ID
+      fundAccountId: { type: String },      // RazorpayX Fund Account ID
+      fundAccountType: { type: String, enum: ["bank_account", "vpa"] },
+
+      // For UI display only (avoid storing full bank account number)
+      lastFour: { type: String },
+      ifsc: { type: String },
+      vpa: { type: String },
+    },
+
     // Status
     createdAt: { type: Date, default: Date.now },
   },

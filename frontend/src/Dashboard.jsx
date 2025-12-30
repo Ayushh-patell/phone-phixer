@@ -19,10 +19,12 @@ import {
   FiActivity,
   FiSettings,
   FiList,
+  FiCreditCard,
 } from "react-icons/fi";
 import StarEligibilitySection from "./component/StarEligibility";
 import SettingsSection from "./component/SettingsSection";
 import RequestSection from "./component/RequestSection";
+import WithdrawalRequestSection from "./component/WithdrawalRequestSection";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -85,6 +87,7 @@ function Dashboard() {
     if (activeTab === "stars") return "Stars";
     if (activeTab === "settings") return "Settings";
     if (activeTab === "request") return "Request";
+    if (activeTab === "withdrawal") return "Withdrawal";
     return "Dashboard";
   }, [activeTab]);
 
@@ -180,6 +183,7 @@ function Dashboard() {
                 <NavButton id="stats" label="Stats" Icon={FiActivity} />
                 <NavButton id="stars" label="Star" Icon={FiAward} />
                 <NavButton id="request" label="Request" Icon={FiList} />
+                <NavButton id="withdrawal" label="Withdrawal" Icon={FiCreditCard} />
 
                 {user.admin &&
                   <NavButton id="settings" label="Settings" Icon={FiSettings} />
@@ -231,6 +235,7 @@ function Dashboard() {
             <NavButton id="stats" label="Stats" Icon={FiActivity} />
             <NavButton id="stars" label="Star" Icon={FiAward} />
             <NavButton id="request" label="Request" Icon={FiList} />
+            <NavButton id="withdrawal" label="Withdrawal" Icon={FiCreditCard} />
             {user.admin &&
             <NavButton id="settings" label="Settings" Icon={FiSettings} />
             }
@@ -284,6 +289,8 @@ function Dashboard() {
                         ? "Admin Settings Panel"
                         : activeTab === "request"
                         ? "Request Panel"
+                        : activeTab === "withdrawal"
+                        ? "Withdrawal Request Panel"
                         : "Your star level and benefits."}
                     </div>
                   </div>
@@ -323,6 +330,7 @@ function Dashboard() {
             {activeTab === "stars" && <StarEligibilitySection />}
             {activeTab === "settings" && <SettingsSection />}
             {activeTab === "request" && <RequestSection user={user} />}
+            {activeTab === "withdrawal" && <WithdrawalRequestSection user={user} />}
           </main>
         </div>
       </div>

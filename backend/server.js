@@ -13,6 +13,8 @@ import starEligibilityRoutes from "./routes/starEligibilityRoutes.js";
 import checkRoutes from "./routes/checkRoutes.js";
 import purchaseRoutes from "./routes/purchasesRoutes.js";
 import refundsRoutes from "./routes/refundRoutes.js";
+import withdrawalWebhookRoutes from "./routes/withdrawlWebhookRoutes.js";
+import withdrawalRoutes from "./routes/withdrawlRoutes.js";
 
 
 
@@ -24,6 +26,14 @@ connectDB();
 
 // Middleware
 app.use(cors());
+
+// webhook needs RAW
+app.use(
+  "/api/withdrawals/webhook",
+  express.raw({ type: "application/json" }),
+  withdrawalWebhookRoutes
+);
+
 app.use(express.json()); // parse JSON body
 
 // Test Route
@@ -41,6 +51,8 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/checks", checkRoutes);
 app.use("/api/purchases", purchaseRoutes);
 app.use("/api/refunds", refundsRoutes);
+
+app.use("/api/withdrawals", withdrawalRoutes);
 
 
 // Start Server

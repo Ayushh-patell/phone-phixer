@@ -10,6 +10,7 @@ import jwt from "jsonwebtoken"
 import { placeInReferralTree } from "../lib/PlacementLogic.js";
 import { getStarLevels } from "../lib/starLogic.js";
 import { getSandboxToken } from "../lib/sandboxClient.js";
+import TreeNode from "../models/TreeNode.js";
 
 
 
@@ -20,6 +21,8 @@ const router = express.Router();
 
 // ====== USER CREATION ======
 router.post("/register", async (req, res) => {
+  let session = null;
+
   try {
     let {
       name,
@@ -67,7 +70,7 @@ router.post("/register", async (req, res) => {
       name,
       email,
       phone: phone || null,
-      dob: dob || null, 
+      dob: dob || null,
       password: hash,
       verified: false,
       aadhaarVerified: false,
@@ -75,7 +78,9 @@ router.post("/register", async (req, res) => {
       deviceBrand: deviceBrand || null,
       deviceModel: deviceModel || null,
       deviceImei: deviceImei || null,
-      // referredBy stays null here if you're using the tree placement later
+
+      // New tree setup: user is NOT placed in any tree on register
+      referralActive: false,
     };
 
     // ===== referral logic (only if referralCode is sent) =====
@@ -86,44 +91,116 @@ router.post("/register", async (req, res) => {
 
       // if it's an empty string, treat as "not sent"
       if (referralCode.length > 0) {
-        const formattedCode = referralCode.toLowerCase().startsWith("pp")
-          ? referralCode.slice(2)
+        // Normalize: remove optional "pp" prefix (case-insensitive)
+        const lower = referralCode.toLowerCase();
+        const formattedCode = lower.startsWith("pp")
+          ? referralCode.slice(2).trim()
           : referralCode;
 
         if (!formattedCode) {
           return res.status(400).json({ message: "Invalid referral code" });
         }
 
-        // Find the referrer by referralCode (correct query)
+        // Find the referrer by referralCode
+        // (If you store referralCode in a normalized form, normalize formattedCode similarly.)
         referrer = await User.findOne({ referralCode: formattedCode });
         if (!referrer) {
           return res.status(400).json({ message: "Invalid referral code" });
         }
 
-        // set sponsor like /use-code does
+        // Sponsor relationship only (business relationship)
         userData.referralUsed = referrer._id;
-
-        // If you STILL want the old behavior too, uncomment this:
-        // userData.referredBy = referrer._id;
       }
     }
 
-    // Create user
-    const user = await User.create(userData);
+    // --- Do writes (optionally in a transaction) ---
+    // Transactions require replica set. If your MongoDB is standalone, this will throw.
+    // We’ll try transaction first; if not supported, we fall back to non-transaction writes.
+    const runWrites = async (useSession) => {
+      const createOpts = useSession ? { session } : undefined;
+      const updateOpts = useSession ? { session } : undefined;
 
-    // Add new user to referrer's request queue (if referral was provided & valid)
-    if (referrer) {
-      await User.updateOne(
-        { _id: referrer._id },
-        { $addToSet: { referralRequest: user._id } }
-      );
+      // Create user
+      const user = await User.create([userData], createOpts);
+      const createdUser = user[0];
+
+      // Create root node for THIS user's own tree (recommended)
+      // This does NOT place them under sponsor; it just creates their personal tree root.
+      try {
+        await TreeNode.create(
+          [
+            {
+              treeOwner: createdUser._id,
+              user: createdUser._id,
+              parentUser: null,
+              side: "root",
+              level: 0,
+            },
+          ],
+          createOpts
+        );
+      } catch (err) {
+        // Ignore duplicate (in case route is retried)
+        if (err?.code !== 11000) throw err;
+      }
+
+      // Add to sponsor's request queue (pending placement) if referral was provided
+      if (referrer) {
+        await User.updateOne(
+          { _id: referrer._id },
+          { $addToSet: { referralRequest: createdUser._id } },
+          updateOpts
+        );
+      }
+
+      return createdUser;
+    };
+
+    let createdUser;
+
+    try {
+      session = await mongoose.startSession();
+      session.startTransaction();
+
+      createdUser = await runWrites(true);
+
+      await session.commitTransaction();
+      session.endSession();
+      session = null;
+    } catch (txErr) {
+      // Fallback for standalone MongoDB (no transactions)
+      if (session) {
+        try {
+          await session.abortTransaction();
+        } catch {}
+        session.endSession();
+        session = null;
+      }
+
+      // If it failed due to transactions not supported, retry without session.
+      const msg = String(txErr?.message || "");
+      const isTxnNotSupported =
+        msg.includes("Transaction numbers are only allowed") ||
+        msg.includes("replica set") ||
+        msg.includes("mongos");
+
+      if (!isTxnNotSupported) throw txErr;
+
+      createdUser = await runWrites(false);
     }
 
     return res.status(201).json({
       message: "User created",
-      userId: user._id,
+      userId: createdUser._id,
     });
   } catch (error) {
+    if (session) {
+      try {
+        await session.abortTransaction();
+      } catch {}
+      session.endSession();
+    }
+
     console.error("REGISTER ERROR:", error);
     return res.status(500).json({ message: "Server error" });
   }
@@ -678,59 +755,130 @@ router.get("/me", protect, async (req, res) => {
     const userId = req.user.id;
 
     const user = await User.findById(userId)
-      .populate("referredBy", "name email referralCode")
-      .populate('referralUsed', "name email referralCode")
+      .populate("referralUsed", "name email referralCode")
       .select(
-        "name email role selfVolume leftVolume rightVolume walletBalance totalEarnings referralCode referralActive createdAt referredBy star referralUsed at_hotposition deviceModel deviceBrand deviceImei, rsp Totalrsp"
+        [
+          "name",
+          "email",
+          "role",
+          "selfVolume",
+          "leftVolume",
+          "rightVolume",
+          "walletBalance",
+          "totalEarnings",
+          "referralCode",
+          "referralActive",
+          "createdAt",
+          "star",
+          "referralUsed",
+          "deviceModel",
+          "deviceBrand",
+          "deviceImei",
+          "rsp",
+          "Totalrsp",
+          "checksClaimed",
+          "placementCache",
+        ].join(" ")
       );
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const levels = await getStarLevels()
+    const levels = await getStarLevels();
+    const userStars = levels.find((item) => item.lvl === user.star) || null;
 
-    const userStars = levels.find((item) => item.lvl === user.star);
+    // NEW: Placement inside sponsor's tree comes from TreeNode (not User fields)
+    // This answers: "Where am I placed in my sponsor's binary tree?"
+    let placement = null;
+
+    const sponsorId =
+      user.referralUsed && typeof user.referralUsed === "object"
+        ? user.referralUsed._id
+        : user.referralUsed;
+
+    if (sponsorId) {
+      const node = await TreeNode.findOne({
+        treeOwner: sponsorId,
+        user: user._id,
+      })
+        .populate("parentUser", "name email referralCode")
+        .select("parentUser side level at_hotposition");
+
+      if (node) {
+        placement = {
+          treeOwner: sponsorId,
+          parentUser: node.parentUser
+            ? {
+                id: node.parentUser._id,
+                name: node.parentUser.name,
+                email: node.parentUser.email,
+                referralCode: node.parentUser.referralCode || null,
+              }
+            : null,
+          side: node.side, // "L" | "R" (or "root" if you ever query root)
+          level: node.level,
+          at_hotposition: node.at_hotposition || false,
+        };
+      } else if (user.placementCache?.treeOwner) {
+        // Optional fallback if you keep placementCache
+        placement = {
+          treeOwner: user.placementCache.treeOwner,
+          parentUser: user.placementCache.parentUser,
+          side: user.placementCache.side,
+          level: user.placementCache.level,
+          at_hotposition: false,
+        };
+      }
+    }
 
     return res.json({
       id: user._id,
       name: user.name,
       email: user.email,
       role: user.role,
+
       selfVolume: user.selfVolume || 0,
       leftVolume: user.leftVolume || 0,
       rightVolume: user.rightVolume || 0,
+
       walletBalance: user.walletBalance || 0,
       totalEarnings: user.totalEarnings || 0,
+
       referralCode: user.referralCode || null,
       referralActive: user.referralActive || false,
+
       deviceBrand: user.deviceBrand,
       deviceModel: user.deviceModel,
       deviceImei: user.deviceImei,
-      rsp: user.rsp,
-      Totalrsp: user.Totalrsp,
+
+      rsp: user.rsp || 0,
+      Totalrsp: user.Totalrsp || 0,
+
       createdAt: user.createdAt,
-      // referredBy info (if any)
-      referredBy: user.referredBy
-        ? {
-            id: user.referredBy._id,
-            name: user.referredBy.name,
-            email: user.referredBy.email,
-            referralCode: user.referredBy.referralCode || null,
-          }
-        : null,
-      availableChecks: user.availableChecks || 0, // optional, if you add to schema or compute
-      star: user.star || 1,
-      starInfo:userStars,
-      referralUsed:user.referralUsed
+
+      // Sponsor (business relationship)
+      referralUsed: user.referralUsed
         ? {
             id: user.referralUsed._id,
             name: user.referralUsed.name,
             email: user.referralUsed.email,
             referralCode: user.referralUsed.referralCode || null,
           }
-        : null, 
-      at_hotposition:user.at_hotposition || false
+        : null,
+
+      // NEW: placement (tree structure relationship, scoped to sponsor's tree)
+      placement, // { treeOwner, parentUser, side, level, at_hotposition } or null
+
+      // keep your existing fields
+      star: user.star || 1,
+      starInfo: userStars,
+
+      checksClaimed: user.checksClaimed || 0,
+
+      // If you still want the old response key name:
+      // at_hotposition is no longer global on User, so we expose it from placement
+      at_hotposition: placement?.at_hotposition || false,
     });
   } catch (err) {
     console.error("Error fetching user info:", err);
@@ -747,56 +895,94 @@ router.post("/use-code", protect, async (req, res) => {
       return res.status(400).json({ message: "Referral code required" });
     }
 
-        // normalize input
+    // normalize input
     referralCode = String(referralCode).trim();
-    
+
     // if referralCode starts with "pp" (any case), remove it; else use as-is
     const formattedCode = referralCode.toLowerCase().startsWith("pp")
-      ? referralCode.slice(2)
+      ? referralCode.slice(2).trim()
       : referralCode;
 
     if (!formattedCode) {
       return res.status(400).json({ message: "Invalid referral code" });
     }
-    const user = await User.findById(req.user.id);
+
+    const user = await User.findById(req.user.id).select(
+      "referralCode referralUsed placementCache"
+    );
+
     if (!user) {
       return res.status(400).json({ message: "User not found" });
     }
 
-    // normalize own code too (recommended)
-const userOwnCode = String(user.referralCode || "").trim();
-const userOwnFormatted = userOwnCode.toLowerCase().startsWith("pp")
-  ? userOwnCode.slice(2)
-  : userOwnCode;
+    // normalize own code too
+    const userOwnCode = String(user.referralCode || "").trim();
+    const userOwnFormatted = userOwnCode.toLowerCase().startsWith("pp")
+      ? userOwnCode.slice(2).trim()
+      : userOwnCode;
 
-    // Can't use own code
+    // Can't use own code (string match)
     if (userOwnFormatted && userOwnFormatted === formattedCode) {
-      return res.status(400).json({ message: "Cannot use your own referral code" });
+      return res
+        .status(400)
+        .json({ message: "Cannot use your own referral code" });
     }
 
     // Find the referrer by referralCode
-    const referrer = await User.findOne({ referralCode: formattedCode });
+    const referrer = await User.findOne({ referralCode: formattedCode }).select(
+      "_id"
+    );
 
     if (!referrer) {
       return res.status(400).json({ message: "Invalid referral code" });
     }
 
+    // Can't use own code (id match)
+    if (referrer._id.toString() === user._id.toString()) {
+      return res
+        .status(400)
+        .json({ message: "Cannot use your own referral code" });
+    }
+
     const previousSponsorId = user.referralUsed;
+
+    // NEW LOCK RULE (correct for your new TreeNode trees):
+    // If the user is already PLACED in any sponsor tree (side L/R), sponsor cannot be changed.
+    // This ignores "root" node.
+    const placedNode = await TreeNode.findOne({
+      user: user._id,
+      side: { $in: ["L", "R"] },
+    })
+      .select("treeOwner")
+      .lean();
+
+    if (placedNode) {
+      // If they’re trying to set the same sponsor again, allow a harmless success response.
+      if (
+        previousSponsorId &&
+        previousSponsorId.toString() === referrer._id.toString()
+      ) {
+        return res.json({
+          message: "Referral code accepted. Sponsor unchanged (already placed).",
+        });
+      }
+
+      return res.status(400).json({
+        message:
+          "Sponsor cannot be changed after you are placed in a tree. Please contact support if needed.",
+      });
+    }
 
     // If user already had a sponsor and it's the same as the new one
     if (
       previousSponsorId &&
       previousSponsorId.toString() === referrer._id.toString()
     ) {
-      // Just ensure they are in the referrer's request list (no duplicates)
-      const alreadyRequested = (referrer.referralRequest || []).some(
-        (id) => id.toString() === user._id.toString()
+      // Ensure they are in the referrer's request list (no duplicates)
+      await User.updateOne(
+        { _id: referrer._id },
+        { $addToSet: { referralRequest: user._id } }
       );
-
-      if (!alreadyRequested) {
-        referrer.referralRequest.push(user._id);
-        await referrer.save();
-      }
 
       return res.json({
         message: "Referral code accepted. Sponsor unchanged.",
@@ -805,31 +991,30 @@ const userOwnFormatted = userOwnCode.toLowerCase().startsWith("pp")
 
     // If user had a previous sponsor, remove them from that sponsor's request list
     if (previousSponsorId) {
-      const previousSponsor = await User.findById(previousSponsorId);
-
-      if (previousSponsor) {
-        previousSponsor.referralRequest =
-          (previousSponsor.referralRequest || []).filter(
-            (id) => id.toString() !== user._id.toString()
-          );
-        await previousSponsor.save();
-      }
+      await User.updateOne(
+        { _id: previousSponsorId },
+        { $pull: { referralRequest: user._id } }
+      );
     }
 
-    // Set new sponsor
+    // Set new sponsor (business relationship only)
     user.referralUsed = referrer._id;
-    // NOTE: referredBy stays null here, will be set when placed in the tree
+
+    // Sponsor changed => clear any cached placement info (optional, but recommended)
+    user.placementCache = {
+      treeOwner: null,
+      parentUser: null,
+      side: null,
+      level: null,
+    };
+
     await user.save();
 
-    // Add this user into the new referrer's request queue (if not already there)
-    const alreadyRequestedNew = (referrer.referralRequest || []).some(
-      (id) => id.toString() === user._id.toString()
+    // Add this user into the new referrer's request queue (no duplicates)
+    await User.updateOne(
+      { _id: referrer._id },
+      { $addToSet: { referralRequest: user._id } }
     );
-
-    if (!alreadyRequestedNew) {
-      referrer.referralRequest.push(user._id);
-      await referrer.save();
-    }
 
     return res.json({
       message: previousSponsorId
@@ -859,23 +1044,36 @@ router.get("/requests", protect, async (req, res) => {
     const requestIds = actingUser.referralRequest || [];
 
     if (requestIds.length === 0) {
-      return res.json({
-        total: 0,
-        requests: [],
-      });
+      return res.json({ total: 0, requests: [] });
     }
 
-    // Fetch all users in referralRequest
-    const pendingUsers = await User.find({
-      _id: { $in: requestIds },
-    }).select("_id name email selfVolume referralActive createdAt");
+    // NEW: remove those already placed in actingUser's tree (side L/R)
+    const placedNodes = await TreeNode.find({
+      treeOwner: actingUserId,
+      user: { $in: requestIds },
+      side: { $in: ["L", "R"] },
+    })
+      .select("user")
+      .lean();
 
-    // Preserve the same order as in referralRequest array
-    const mapById = new Map(
-      pendingUsers.map((u) => [u._id.toString(), u])
+    const placedSet = new Set(placedNodes.map((n) => n.user.toString()));
+    const filteredRequestIds = requestIds.filter(
+      (id) => !placedSet.has(id.toString())
     );
 
-    const orderedUsers = requestIds
+    if (filteredRequestIds.length === 0) {
+      return res.json({ total: 0, requests: [] });
+    }
+
+    // Fetch all users in referralRequest (filtered)
+    const pendingUsers = await User.find({
+      _id: { $in: filteredRequestIds },
+    }).select("_id name email selfVolume referralActive createdAt referralUsed");
+
+    // Preserve the same order as in referralRequest array
+    const mapById = new Map(pendingUsers.map((u) => [u._id.toString(), u]));
+
+    const orderedUsers = filteredRequestIds
       .map((id) => mapById.get(id.toString()))
       .filter(Boolean);
 
@@ -886,8 +1084,14 @@ router.get("/requests", protect, async (req, res) => {
         name: u.name,
         email: u.email,
         selfVolume: u.selfVolume || 0,
-        referralActive: !!u.referralActive,
+        referralActive: !!u.referralActive, // kept as-is (your meaning)
         createdAt: u.createdAt,
+
+        // Optional: quick sanity signals for UI/debug
+        sponsorId: u.referralUsed || null,
+        isSponsoredByMe: u.referralUsed
+          ? u.referralUsed.toString() === actingUserId.toString()
+          : false,
       })),
     });
   } catch (err) {

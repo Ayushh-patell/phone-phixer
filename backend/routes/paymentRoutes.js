@@ -13,6 +13,7 @@ import { updateReferralRSP } from "../lib/updateReferralRSP.js";
 import Purchase from "../models/Purchase.js";
 import Service from "../models/Service.js";
 import User from "../models/User.js";
+import TreeNode from "../models/TreeNode.js";
 import UserMetricEvent from "../models/UserMetricEvent.js";
 import UserMonthlyCheckStats from "../models/UserMonthlyCheckStats.js";
 
@@ -103,7 +104,6 @@ router.post("/verify", protect, async (req, res) => {
           .json({ message: "walletUsed must be a non-negative number" });
       }
 
-      // Optional guard: don't allow walletUsed exceed service price
       if (walletUsedNum > servicePrice) {
         return res
           .status(400)
@@ -138,7 +138,7 @@ router.post("/verify", protect, async (req, res) => {
 
     let purchase = null;
 
-    // If renew: update the previous purchase; also update its payment breakdown for this renew event
+    // If renew: update the previous purchase
     if (isRenew && previousPurchaseId) {
       purchase = await Purchase.findOneAndUpdate(
         {
@@ -153,12 +153,10 @@ router.post("/verify", protect, async (req, res) => {
             deviceModel,
             deviceImei,
 
-            // store payment routing info for refunds
             paymentMethod,
             paidViaWallet,
             paidViaRazorpay,
 
-            // store Razorpay refs if any razorpay portion exists
             razorpayOrderId: paidViaRazorpay > 0 ? razorpay_order_id : null,
             razorpayPaymentId: paidViaRazorpay > 0 ? razorpay_payment_id : null,
           },
@@ -220,7 +218,6 @@ router.post("/verify", protect, async (req, res) => {
         // 5-level rule (includes current user). Only eligible users get credited.
         await updateReferralRSP(user._id, rspAdded);
 
-        // Monthly stats: count as created (as you were doing)
         const month = monthStartUTC(new Date());
         await UserMonthlyCheckStats.findOneAndUpdate(
           { user: user._id, month },
@@ -228,7 +225,6 @@ router.post("/verify", protect, async (req, res) => {
           { upsert: true, new: true }
         );
 
-        // Event log
         await UserMetricEvent.create({
           user: user._id,
           eventType: "rsp_earned",
@@ -256,11 +252,13 @@ router.post("/verify", protect, async (req, res) => {
       }
     }
 
-    // Activation logic
+    // Activation logic (referralActive unrelated to sponsor usage)
     const ACTIVATION_THRESHOLD = await getSettingValue("referralActive_limit", 5);
-    if (user.selfVolume >= ACTIVATION_THRESHOLD && !user.referralActive) {
+
+    let activatedNow = false;
+    if ((user.selfVolume || 0) >= ACTIVATION_THRESHOLD && !user.referralActive) {
       user.referralActive = true;
-      user.at_hotposition = false;
+      activatedNow = true;
     }
 
     if (!user.hasMadeFirstPurchase) {
@@ -269,8 +267,18 @@ router.post("/verify", protect, async (req, res) => {
 
     await user.save();
 
-    // Propagate UV volumes up the placement tree
-    if (user.referredBy) {
+    // If user just activated, clear hotposition flag in the sponsor tree node (if any)
+    // (at_hotposition is now stored per-tree in TreeNode, not on User)
+    if (activatedNow && user.referralUsed) {
+      await TreeNode.updateOne(
+        { treeOwner: user.referralUsed, user: user._id },
+        { $set: { at_hotposition: false } }
+      );
+    }
+
+    // Propagate UV volumes up the placement tree (TreeNode-based)
+    // Function will no-op if the user is not placed / no sponsor tree exists.
+    if (uv > 0) {
       await updateReferralVolumes(user._id, uv);
     }
 
@@ -283,7 +291,7 @@ router.post("/verify", protect, async (req, res) => {
       paidViaRazorpay,
       paymentMethod,
       originalPrice: originalPrice ?? servicePrice,
-      rspAdded, // for UI
+      rspAdded,
     });
   } catch (err) {
     console.error("Error verifying Razorpay payment:", err);
@@ -423,10 +431,8 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       if (safeRspPerUv > 0 && uv > 0) {
         rspAdded = uv * safeRspPerUv;
 
-        // 5-level rule (includes current user)
         await updateReferralRSP(user._id, rspAdded);
 
-        // monthly RSP created
         const month = monthStartUTC(new Date());
         await UserMonthlyCheckStats.findOneAndUpdate(
           { user: user._id, month },
@@ -458,9 +464,11 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
 
     // Activation logic
     const ACTIVATION_THRESHOLD = await getSettingValue("referralActive_limit", 5);
-    if (user.selfVolume >= ACTIVATION_THRESHOLD && !user.referralActive) {
+
+    let activatedNow = false;
+    if ((user.selfVolume || 0) >= ACTIVATION_THRESHOLD && !user.referralActive) {
       user.referralActive = true;
-      user.at_hotposition = false;
+      activatedNow = true;
     }
 
     if (!user.hasMadeFirstPurchase) {
@@ -469,8 +477,16 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
 
     await user.save();
 
-    // Propagate UV volumes up the placement tree
-    if (user.referredBy) {
+    // Clear hotposition in sponsor-tree node if activated now
+    if (activatedNow && user.referralUsed) {
+      await TreeNode.updateOne(
+        { treeOwner: user.referralUsed, user: user._id },
+        { $set: { at_hotposition: false } }
+      );
+    }
+
+    // Propagate UV volumes up the placement tree (TreeNode-based)
+    if (uv > 0) {
       await updateReferralVolumes(user._id, uv);
     }
 

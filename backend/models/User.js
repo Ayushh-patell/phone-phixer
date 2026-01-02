@@ -8,74 +8,46 @@ const UserSchema = new mongoose.Schema(
     email: { type: String, unique: true, sparse: true, required: true },
     phone: { type: String, unique: true, sparse: true },
     password: { type: String, required: true },
+
     aadhaarNumber: { type: String },
     dob: { type: String },
     verified: { type: Boolean, default: false },
 
     // Aadhaar / KYC
-    aadhaarVerified: {
-      type: Boolean,
-      default: false,
-    },
+    aadhaarVerified: { type: Boolean, default: false },
 
     // Device Info
-    deviceBrand: {
-      type: String,
-    },
-    deviceModel: {
-      type: String,
-    },
-    deviceImei: {
-      type: String,
-      // don't mark unique in case multiple users share a device or for safety
-      // unique: true,
-    },
+    deviceBrand: { type: String },
+    deviceModel: { type: String },
+    deviceImei: { type: String },
 
-    // Address (simple string; change to subdocument later if needed)
-    address: {
-      type: String,
-    },
+    // Address
+    address: { type: String },
 
-    // User Roles
-    role: {
-      type: String,
-      enum: ["user", "admin"],
-      default: "user",
-    },
+    // Roles
+    role: { type: String, enum: ["user", "admin"], default: "user" },
 
     // Admin Controls
-    isDisabled: {
-      type: Boolean,
-      default: false,
-    },
+    isDisabled: { type: Boolean, default: false },
 
     hasMadeFirstPurchase: {
       type: Boolean,
       default: false,
-      index: true, // optional but nice for the cron query
+      index: true,
     },
 
     // Whether user is eligible/active in the referral tree
-    referralActive: {
-      type: Boolean,
-      default: false,
-    },
+    referralActive: { type: Boolean, default: false },
 
-    // Referral system
-    referralCode: { type: String }, // this user's code
+    // This user's referral code
+    referralCode: { type: String },
 
-    // Binary-tree parent (placement parent)
-    referredBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    },
-
-    // User whose referral code this user used (sponsor)
+    // Sponsor: user whose referral code this user used
     referralUsed: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
+      index: true,
     },
 
     // Users waiting to be placed under me
@@ -86,56 +58,44 @@ const UserSchema = new mongoose.Schema(
       },
     ],
 
-    // Placement status flag (you'll define semantics later)
-    at_hotposition: {
-      type: Boolean,
-      default: false,
+    // OPTIONAL cache for UI (TreeNode is the source of truth)
+    placementCache: {
+      treeOwner: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      side: { type: String, enum: ["L", "R"], default: null },
+      level: { type: Number, default: null },
     },
 
-    // Referral Tree Pointers
-    leftChild: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    },
-    rightChild: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    },
-
-    // Volumes / Points
-    leftVolume: { type: Number, default: 0 }, // total left side UV
-    rightVolume: { type: Number, default: 0 }, // total right side UV
-    selfVolume: { type: Number, default: 0 }, // total self UV
-    rsp: { type: Number, default: 0 }, // Current RSP
-    Totalrsp: { type: Number, default: 0 }, // total RSP
+    // Volumes / Points (as you want: stays on User)
+    leftVolume: { type: Number, default: 0 },
+    rightVolume: { type: Number, default: 0 },
+    selfVolume: { type: Number, default: 0 },
+    rsp: { type: Number, default: 0 },
+    Totalrsp: { type: Number, default: 0 },
 
     // Wallet Summary
-    walletBalance: { type: Number, default: 0 }, // money available to withdraw
-    totalEarnings: { type: Number, default: 0 }, // lifetime earnings
+    walletBalance: { type: Number, default: 0 },
+    totalEarnings: { type: Number, default: 0 },
 
     star: { type: Number, default: 1 },
-    checksClaimed: { type: Number, default: 0 }, // total checks already redeemed
-
+    checksClaimed: { type: Number, default: 0 },
 
     razorpayX: {
-      contactId: { type: String },          // RazorpayX Contact ID
-      fundAccountId: { type: String },      // RazorpayX Fund Account ID
+      contactId: { type: String },
+      fundAccountId: { type: String },
       fundAccountType: { type: String, enum: ["bank_account", "vpa"] },
 
-      // For UI display only (avoid storing full bank account number)
       lastFour: { type: String },
       ifsc: { type: String },
       vpa: { type: String },
     },
 
-    // Status
     createdAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
 );
 
+// Unique referralCode only when it exists
 UserSchema.index(
   { referralCode: 1 },
   {

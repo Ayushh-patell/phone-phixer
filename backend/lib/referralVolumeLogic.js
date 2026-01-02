@@ -1,65 +1,91 @@
+// lib/referralVolumeLogic.js
 import User from "../models/User.js";
+import TreeNode from "../models/TreeNode.js";
 
-// Helper: propagate volume up the referral tree
-export const updateReferralVolumes = async (startingUserId, uv) => {
-  if (!startingUserId || !uv || uv === 0) return;
+// Helper: propagate volume up the sponsor's placement tree (TreeNode-based)
+// Supports positive UV (purchase) and negative UV (refund)
+export const updateReferralVolumes = async (startingUserId, uv, treeOwnerOverride = null) => {
+  const uvNum = Number(uv);
+  if (!startingUserId || !Number.isFinite(uvNum) || uvNum === 0) return;
 
-  // Safety: prevent infinite loops in case of a bad cycle
+  // Determine which tree to traverse:
+  // - prefer snapshot/override (for refunds)
+  // - fallback to current referralUsed
+  let treeOwnerId = treeOwnerOverride;
+
+  if (!treeOwnerId) {
+    const startingUser = await User.findById(startingUserId).select("_id referralUsed");
+    if (!startingUser || !startingUser.referralUsed) return;
+    treeOwnerId = startingUser.referralUsed;
+  }
+
+  // Find starting user's placement inside treeOwner's tree
+  const startNode = await TreeNode.findOne({
+    treeOwner: treeOwnerId,
+    user: startingUserId,
+    side: { $in: ["L", "R"] },
+  })
+    .select("parentUser side")
+    .lean();
+
+  if (!startNode || !startNode.parentUser) return; // not placed yet => no uplines to update
+
+  // Safety: prevent infinite loops in case of bad data
   const visited = new Set();
 
-  let currentUserId = startingUserId;
+  // Move upward in THIS treeOwner only
+  let currentParentId = startNode.parentUser; // upline receiving volume
+  let sideToApply = startNode.side;           // "L" or "R" relative to currentParent
 
-  while (currentUserId) {
-    if (visited.has(currentUserId.toString())) {
-      console.warn("Detected cycle in referral tree, stopping volume update.");
+  while (currentParentId) {
+    const parentKey = currentParentId.toString();
+    if (visited.has(parentKey)) {
+      console.warn("Detected cycle in TreeNode chain, stopping volume update.");
       break;
     }
-    visited.add(currentUserId.toString());
+    visited.add(parentKey);
 
-    // Current user (the one whose action generated UV)
-    const currentUser = await User.findById(currentUserId).select("_id referredBy");
-    if (!currentUser || !currentUser.referredBy) {
-      // No more uplines
-      break;
-    }
+    // Read parent's TreeNode in this tree to apply hotposition + go further up
+    const parentNode = await TreeNode.findOne({
+      treeOwner: treeOwnerId,
+      user: currentParentId,
+    })
+      .select("parentUser side at_hotposition")
+      .lean();
 
-    // Referrer (upline)
-    const referrer = await User.findById(currentUser.referredBy).select(
-      "_id leftChild rightChild leftVolume rightVolume at_hotposition"
-    );
-    if (!referrer) {
-      break;
-    }
-
-    const isLeft =
-      referrer.leftChild &&
-      referrer.leftChild.toString() === currentUser._id.toString();
-    const isRight =
-      referrer.rightChild &&
-      referrer.rightChild.toString() === currentUser._id.toString();
-
-    // Per-referrer hotposition logic:
-    // - If referrer is at hotposition, they get half UV
-    // - Otherwise they get full UV
-    let volumeToAdd = uv;
-    if (referrer.at_hotposition) {
-      volumeToAdd = uv / 2;
-    }
-
-    if (isLeft) {
-      referrer.leftVolume = (referrer.leftVolume || 0) + volumeToAdd;
-    } else if (isRight) {
-      referrer.rightVolume = (referrer.rightVolume || 0) + volumeToAdd;
-    } else {
-      // This means currentUser is not set as leftChild or rightChild for this referrer.
+    // If missing node, stop (unless you intentionally don't store root nodes)
+    if (!parentNode && currentParentId.toString() !== treeOwnerId.toString()) {
       console.warn(
-        `User ${currentUser._id} is not leftChild/rightChild of referrer ${referrer._id}`
+        `Missing TreeNode for parent ${currentParentId} in treeOwner ${treeOwnerId}. Stopping.`
       );
+      break;
     }
 
-    await referrer.save();
+    const isHot = !!parentNode?.at_hotposition;
+    const volumeToAdd = isHot ? uvNum / 2 : uvNum; // works for negative too
 
-    // Move one level up
-    currentUserId = referrer._id;
+    if (sideToApply === "L") {
+      await User.updateOne(
+        { _id: currentParentId },
+        { $inc: { leftVolume: volumeToAdd } }
+      );
+    } else if (sideToApply === "R") {
+      await User.updateOne(
+        { _id: currentParentId },
+        { $inc: { rightVolume: volumeToAdd } }
+      );
+    } else {
+      console.warn(`Invalid TreeNode.side '${sideToApply}' while propagating volume.`);
+      break;
+    }
+
+    const nextParentId = parentNode?.parentUser || null;
+    const parentSideUnderNext = parentNode?.side || null; // parent's side under its own parent
+
+    if (!nextParentId) break; // reached root
+    if (parentSideUnderNext !== "L" && parentSideUnderNext !== "R") break;
+
+    sideToApply = parentSideUnderNext;
+    currentParentId = nextParentId;
   }
 };

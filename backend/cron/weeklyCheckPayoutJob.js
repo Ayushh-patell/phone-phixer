@@ -8,7 +8,9 @@ import { getSettingValue } from "../routes/universalSettingsRoutes.js";
 
 // ---- helpers for monthly stats ----
 function monthStartUTC(date = new Date()) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0));
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0)
+  );
 }
 
 // ✅ retainMonths=60 => 5 years
@@ -24,6 +26,28 @@ async function cleanupOldMonthlyStats(retainMonths = 60) {
   );
 }
 
+function safeNum(n, fallback = 0) {
+  const x = Number(n);
+  return Number.isFinite(x) ? x : fallback;
+}
+
+function addMonthlyInc(map, userId, incObj) {
+  const key = String(userId);
+  const prev = map.get(key) || {
+    checksCreated: 0,
+    payoutAmount: 0,
+    rspConvertedUnits: 0,
+    rspConvertedAmount: 0,
+  };
+
+  map.set(key, {
+    checksCreated: prev.checksCreated + (incObj.checksCreated || 0),
+    payoutAmount: prev.payoutAmount + (incObj.payoutAmount || 0),
+    rspConvertedUnits: prev.rspConvertedUnits + (incObj.rspConvertedUnits || 0),
+    rspConvertedAmount: prev.rspConvertedAmount + (incObj.rspConvertedAmount || 0),
+  });
+}
+
 export const runWeeklyCheckPayouts = async () => {
   console.log("[CRON] Weekly check payout job started");
 
@@ -33,8 +57,8 @@ export const runWeeklyCheckPayouts = async () => {
     getSettingValue("money_to_rsp", 1.1),
   ]);
 
-  const maxUVPerRun = Number(maxUVSetting) || 0; // 0 => no cap
-  const moneyToRsp = Number(moneyToRspSetting) || 1.1;
+  const maxUVPerRun = safeNum(maxUVSetting, 0); // 0 => no cap
+  const moneyToRsp = safeNum(moneyToRspSetting, 1.1);
 
   const maxPayableChecks = maxUVPerRun > 0 ? Math.floor(maxUVPerRun / 4) : 0;
 
@@ -53,13 +77,15 @@ export const runWeeklyCheckPayouts = async () => {
   let totalRspConvertedUnits = 0;
   let totalRspConvertedAmount = 0;
 
-  const statsBulkOps = [];
   const month = monthStartUTC(new Date());
 
+  // ✅ NEW: collect monthly increments per user so we write ONE upsert per user/month
+  const monthlyIncByUser = new Map();
+
   for (const user of users) {
-    const selfVol = user.selfVolume || 0;
-    const leftVol = user.leftVolume || 0;
-    const rightVol = user.rightVolume || 0;
+    const selfVol = safeNum(user.selfVolume, 0);
+    const leftVol = safeNum(user.leftVolume, 0);
+    const rightVol = safeNum(user.rightVolume, 0);
 
     // ---- compute checks possible ----
     const selfChecks = calculateSelfChecks(selfVol);
@@ -73,9 +99,9 @@ export const runWeeklyCheckPayouts = async () => {
         : totalChecksPossible;
 
     // ---- compute payout based on star ----
-    const level = user.star || 0;
+    const level = safeNum(user.star, 0);
     const starCfg = starLevels.find((s) => s.lvl === level || s.level === level) || {};
-    const checkPrice = Number(starCfg.checkPrice ?? 0);
+    const checkPrice = safeNum(starCfg.checkPrice, 0);
 
     // If checkPrice invalid, do not credit checks (treat all as burned)
     let payoutAmount = 0;
@@ -91,24 +117,20 @@ export const runWeeklyCheckPayouts = async () => {
     }
 
     // ---- RSP -> money conversion ----
-    const currentRsp = user.rsp || 0;
+    const currentRsp = safeNum(user.rsp, 0);
     if (currentRsp > 0) {
       const rspMoney = currentRsp * moneyToRsp;
 
-      user.walletBalance = (user.walletBalance || 0) + rspMoney;
-      user.totalEarnings = (user.totalEarnings || 0) + rspMoney;
+      user.walletBalance = safeNum(user.walletBalance, 0) + rspMoney;
+      user.totalEarnings = safeNum(user.totalEarnings, 0) + rspMoney;
       user.rsp = 0;
 
       totalRspConvertedUnits += currentRsp;
       totalRspConvertedAmount += rspMoney;
 
-      // ✅ monthly stats for conversion
-      statsBulkOps.push({
-        updateOne: {
-          filter: { user: user._id, month },
-          update: { $inc: { rspConvertedUnits: currentRsp, rspConvertedAmount: rspMoney } },
-          upsert: true,
-        },
+      addMonthlyInc(monthlyIncByUser, user._id, {
+        rspConvertedUnits: currentRsp,
+        rspConvertedAmount: rspMoney,
       });
     }
 
@@ -128,17 +150,13 @@ export const runWeeklyCheckPayouts = async () => {
     user.rightVolume = Math.max(0, rightVol - usedRightUV);
 
     // ---- credit payout for payableChecks only ----
-    user.checksClaimed = (user.checksClaimed || 0) + payableChecks;
-    user.walletBalance = (user.walletBalance || 0) + payoutAmount;
-    user.totalEarnings = (user.totalEarnings || 0) + payoutAmount;
+    user.checksClaimed = safeNum(user.checksClaimed, 0) + payableChecks;
+    user.walletBalance = safeNum(user.walletBalance, 0) + payoutAmount;
+    user.totalEarnings = safeNum(user.totalEarnings, 0) + payoutAmount;
 
-    // ✅ monthly stats for credited checks + payout
-    statsBulkOps.push({
-      updateOne: {
-        filter: { user: user._id, month },
-        update: { $inc: { checksCreated: payableChecks, payoutAmount } },
-        upsert: true,
-      },
+    addMonthlyInc(monthlyIncByUser, user._id, {
+      checksCreated: payableChecks,
+      payoutAmount,
     });
 
     await user.save();
@@ -147,9 +165,36 @@ export const runWeeklyCheckPayouts = async () => {
     totalPayoutAllUsers += payoutAmount;
   }
 
+  // ✅ NEW: one upsert per (user, month)
+  const statsBulkOps = [];
+  for (const [userIdStr, inc] of monthlyIncByUser.entries()) {
+    const update = {};
+    const incObj = {};
+
+    if (inc.checksCreated) incObj.checksCreated = inc.checksCreated;
+    if (inc.payoutAmount) incObj.payoutAmount = inc.payoutAmount;
+    if (inc.rspConvertedUnits) incObj.rspConvertedUnits = inc.rspConvertedUnits;
+    if (inc.rspConvertedAmount) incObj.rspConvertedAmount = inc.rspConvertedAmount;
+
+    if (Object.keys(incObj).length === 0) continue;
+
+    update.$inc = incObj;
+
+    statsBulkOps.push({
+      updateOne: {
+        filter: { user: userIdStr, month },
+        update,
+        upsert: true,
+      },
+    });
+  }
+
   if (statsBulkOps.length > 0) {
+    // ordered:false is safe now because each (user,month) appears only once
     await UserMonthlyCheckStats.bulkWrite(statsBulkOps, { ordered: false });
-    console.log(`[CRON] Monthly stats updated for ${statsBulkOps.length} ops (month=${month.toISOString()}).`);
+    console.log(
+      `[CRON] Monthly stats updated for ${statsBulkOps.length} users (month=${month.toISOString()}).`
+    );
   }
 
   if (totalChecksAllUsers > 0 || totalPayoutAllUsers > 0 || totalRspConvertedAmount > 0) {

@@ -198,7 +198,7 @@ function Dashboard() {
 
                 <button
                   onClick={handleLogout}
-                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-neutral-800"
+                  className="mt-3 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-neutral-800"
                 >
                   <FiLogOut className="h-4.5 w-4.5" />
                   Logout
@@ -313,7 +313,7 @@ function Dashboard() {
 
                     <div
                       onClick={handleLogout}
-                     className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-black px-3 py-1.5 text-xs text-neutral-100">
+                     className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-neutral-200 bg-black px-3 py-1.5 text-xs text-neutral-100">
                       Logout
                     </div>
 

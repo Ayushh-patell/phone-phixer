@@ -1,6 +1,7 @@
 import express from "express";
 import { protect } from "../middleware/authMiddleware.js";
 import User from "../models/User.js";
+import TreeNode from "../models/TreeNode.js"; // ✅ NEW
 import UniversalSettings from "../models/UniversalSettings.js";
 import UserMonthlyCheckStats from "../models/UserMonthlyCheckStats.js";
 
@@ -47,10 +48,16 @@ async function getRulesArray() {
 
 /* ------------------ tree traversal (BFS) ------------------ */
 /**
+ * TreeNode-based BFS in *rootUserId's own tree*
  * Returns nodes: [{ id, depth, at_hotposition, referralActive, star }]
+ *
+ * depth semantics:
+ * - children of root are depth=1 (same as your old code)
  */
 async function traverseDownlineBFS(rootUserId, maxDepth) {
   if (!maxDepth || maxDepth <= 0) return [];
+
+  const treeOwnerId = rootUserId; // ✅ each user has their own tree
 
   const visited = new Set();
   const nodes = [];
@@ -61,47 +68,68 @@ async function traverseDownlineBFS(rootUserId, maxDepth) {
   visited.add(String(rootUserId));
 
   while (frontier.length > 0 && depth <= maxDepth) {
-    const parents = await User.find({ _id: { $in: frontier } })
-      .select("_id leftChild rightChild")
+    // Fetch edges (children placements) for this level, scoped to this owner's tree
+    const edges = await TreeNode.find({
+      treeOwner: treeOwnerId,
+      parentUser: { $in: frontier },
+      side: { $in: ["L", "R"] },
+    })
+      .select("user at_hotposition")
       .lean();
 
-    const childIds = [];
-    for (const p of parents) {
-      if (p.leftChild) childIds.push(p.leftChild);
-      if (p.rightChild) childIds.push(p.rightChild);
-    }
+    if (!edges || edges.length === 0) break;
 
+    // Dedup children, keep their per-tree hotposition flag from TreeNode
     const nextIds = [];
-    for (const cid of childIds) {
-      const key = String(cid);
-      if (!visited.has(key)) {
-        visited.add(key);
-        nextIds.push(cid);
-      }
+    const metaByChildId = new Map(); // childIdStr -> { at_hotposition }
+
+    for (const e of edges) {
+      if (!e.user) continue;
+      const key = String(e.user);
+      if (visited.has(key)) continue;
+
+      visited.add(key);
+      nextIds.push(e.user);
+      metaByChildId.set(key, { at_hotposition: !!e.at_hotposition });
     }
 
     if (nextIds.length === 0) break;
 
+    // Safety cap
     if (nodes.length + nextIds.length > MAX_TREE_NODES_CHECK) {
-      // Safety stop
       break;
     }
 
+    // Fetch child user docs (User stores referralActive + star)
     const childDocs = await User.find({ _id: { $in: nextIds } })
-      .select("_id at_hotposition referralActive star leftChild rightChild")
+      .select("_id referralActive star")
       .lean();
 
-    for (const c of childDocs) {
+    const childById = new Map(childDocs.map((d) => [String(d._id), d]));
+
+    // Preserve BFS ordering based on nextIds
+    const nextFrontier = [];
+    for (const cid of nextIds) {
+      const key = String(cid);
+      const doc = childById.get(key);
+      if (!doc) continue;
+
+      const meta = metaByChildId.get(key) || { at_hotposition: false };
+
       nodes.push({
-        id: c._id,
+        id: doc._id,
         depth,
-        at_hotposition: !!c.at_hotposition,
-        referralActive: !!c.referralActive,
-        star: Number(c.star || 0),
+        at_hotposition: !!meta.at_hotposition,
+        referralActive: !!doc.referralActive,
+        star: Number(doc.star || 0),
       });
+
+      nextFrontier.push(doc._id);
+
+      if (nodes.length >= MAX_TREE_NODES_CHECK) break;
     }
 
-    frontier = childDocs.map((d) => d._id);
+    frontier = nextFrontier;
     depth += 1;
   }
 
@@ -173,7 +201,6 @@ async function evalCondition(condition, ctx) {
     const { starLevel, minUsers, levelsToCheck } = condition.groupStar;
     const d = levelsToDepth(levelsToCheck);
 
-    // "at least" check
     const count = withinDepth(d).filter((n) => n.star >= starLevel).length;
 
     return {
@@ -405,7 +432,6 @@ router.post("/level-up", protect, async (req, res) => {
     const userId = req.user?.id || req.user?._id;
     if (!userId) return res.status(401).json({ message: "Not authenticated" });
 
-    // 1) Check eligibility
     const out = await checkNextStarEligibility(userId);
     if (!out.ok) return res.status(out.status || 400).json({ message: out.message });
 
@@ -414,12 +440,10 @@ router.post("/level-up", protect, async (req, res) => {
     if (!result.eligible) {
       return res.status(400).json({
         message: "Not eligible for star upgrade yet",
-        ...result, // includes criteriaResults so frontend can show what failed
+        ...result,
       });
     }
 
-    // 2) Atomic upgrade:
-    // only update if current star is still what we checked
     const updated = await User.findOneAndUpdate(
       { _id: userId, star: result.currentStar },
       { $set: { star: result.targetStar } },
@@ -427,7 +451,6 @@ router.post("/level-up", protect, async (req, res) => {
     ).select("_id star");
 
     if (!updated) {
-      // Someone already upgraded, or star changed since check
       const fresh = await User.findById(userId).select("_id star").lean();
       return res.status(409).json({
         message: "Star changed before upgrade could be applied. Please retry.",

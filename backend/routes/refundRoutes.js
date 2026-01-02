@@ -6,6 +6,7 @@ import express from "express";
 import Razorpay from "razorpay";
 
 import { protect } from "../middleware/authMiddleware.js";
+import { updateReferralVolumes } from "../lib/referralVolumeLogic.js"; // ✅ NEW
 import Purchase from "../models/Purchase.js";
 import User from "../models/User.js";
 import RefundRequest from "../models/RefundRequest.js";
@@ -37,6 +38,10 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function round6(n) {
+  return Math.round((Number(n) || 0) * 1_000_000) / 1_000_000;
+}
+
 function refundableRemaining(purchase) {
   const total = round2(purchase.amountPaid || 0);
   const refunded = round2((purchase.refundedWalletAmount || 0) + (purchase.refundedRazorpayAmount || 0));
@@ -44,14 +49,68 @@ function refundableRemaining(purchase) {
 }
 
 /**
+ * ✅ NEW: Apply UV reversal based on how much money has been refunded so far.
+ * This is safe for partial refunds because it uses purchase.refundedUv to apply only the delta.
+ *
+ * Rule used:
+ *   targetUvRefunded = purchase.uvEarned * (totalRefundedInr / purchase.amountPaid)
+ *   deltaUv = targetUvRefunded - purchase.refundedUv
+ *
+ * Then:
+ *   - user.selfVolume -= deltaUv
+ *   - propagate uplines with updateReferralVolumes(userId, -deltaUv, treeOwnerSnapshot)
+ */
+async function applyUvReversalFromPurchaseTotals(purchaseId) {
+  const purchase = await Purchase.findById(purchaseId).select(
+    "_id userId amountPaid uvEarned refundedWalletAmount refundedRazorpayAmount refundedUv referralUsedSnapshot"
+  );
+
+  if (!purchase) return;
+
+  const amountPaid = Number(purchase.amountPaid || 0);
+  const uvEarned = Number(purchase.uvEarned || 0);
+  if (!Number.isFinite(amountPaid) || amountPaid <= 0) return;
+  if (!Number.isFinite(uvEarned) || uvEarned <= 0) return;
+
+  const totalRefunded = Number((purchase.refundedWalletAmount || 0) + (purchase.refundedRazorpayAmount || 0));
+  if (!Number.isFinite(totalRefunded) || totalRefunded <= 0) return;
+
+  // compute target UV to be reversed so far (proportional)
+  const ratio = Math.min(1, Math.max(0, totalRefunded / amountPaid));
+  // const targetUvRefunded = round6(uvEarned * ratio);
+  const targetUvRefunded = uvEarned;
+
+  const alreadyReversed = Number(purchase.refundedUv || 0);
+  const deltaUv = round6(targetUvRefunded - alreadyReversed);
+
+  if (!Number.isFinite(deltaUv) || deltaUv <= 0) return;
+
+  // Load user to clamp selfVolume safely and to get current referralUsed fallback
+  const user = await User.findById(purchase.userId).select("_id selfVolume referralUsed");
+  if (!user) return;
+
+  // Update purchase.refundedUv first (so repeated calls are idempotent)
+  purchase.refundedUv = round6(alreadyReversed + deltaUv);
+  await purchase.save();
+
+  // Decrement self volume (clamp at 0)
+  const currentSelf = Number(user.selfVolume || 0);
+  user.selfVolume = Math.max(0, round6(currentSelf - deltaUv));
+  await user.save();
+
+  // Propagate negative UV up the tree.
+  // Prefer snapshot if you store it; otherwise fallback to current referralUsed.
+  const treeOwnerForThisPurchase = purchase.referralUsedSnapshot || user.referralUsed || null;
+  await updateReferralVolumes(user._id, -deltaUv, treeOwnerForThisPurchase);
+}
+
+/**
  * USER: POST /api/refunds/request
  * Body: { purchaseId, reason }
  *
- * Rules:
- * - Only within 7 days of purchase.createdAt OR purchase.renewedAt (latest)
- * - If payment is full wallet => refund instantly (credit wallet) and update purchase refund fields
- * - If mixed => refund wallet part instantly, create RefundRequest for razorpay part
- * - If full razorpay => create RefundRequest for full amount
+ * WALLET refunds are paid immediately => UV reversal should happen immediately too.
+ * For mixed refunds: wallet portion is paid immediately => partial UV reversal now;
+ * razorpay portion later => more UV reversal after admin completes.
  */
 router.post("/request", protect, async (req, res) => {
   try {
@@ -78,7 +137,6 @@ router.post("/request", protect, async (req, res) => {
       return res.status(400).json({ message: "Nothing left to refund for this purchase" });
     }
 
-    // Avoid duplicate pending requests for same purchase
     const existingPending = await RefundRequest.findOne({
       purchaseId: purchase._id,
       status: "pending",
@@ -89,7 +147,7 @@ router.post("/request", protect, async (req, res) => {
 
     const method = purchase.paymentMethod;
 
-    // WALLET-ONLY => instant refund (to wallet)
+    // WALLET-ONLY => instant refund (to wallet) + UV reversal now
     if (method === "wallet") {
       const user = await User.findById(purchase.userId);
       if (!user) return res.status(404).json({ message: "User not found" });
@@ -104,6 +162,9 @@ router.post("/request", protect, async (req, res) => {
       purchase.refundedAt = new Date();
       await purchase.save();
 
+      // ✅ NEW: reverse UV proportional to refunded total
+      await applyUvReversalFromPurchaseTotals(purchase._id);
+
       return res.json({
         message: "Refunded instantly to wallet",
         refundedWalletAmount: credit,
@@ -113,7 +174,7 @@ router.post("/request", protect, async (req, res) => {
 
     // MIXED or RAZORPAY-ONLY:
     // - refund wallet portion instantly if any remaining wallet not refunded yet
-    // - create RefundRequest for razorpay portion (INR)
+    // - create RefundRequest for razorpay portion
     let walletRefundedNow = 0;
 
     if (method === "razorpay+wallet") {
@@ -133,10 +194,12 @@ router.post("/request", protect, async (req, res) => {
         purchase.refundedWalletAmount = round2((purchase.refundedWalletAmount || 0) + walletRefundedNow);
         purchase.refundedAt = new Date();
         await purchase.save();
+
+        // ✅ NEW: reverse UV proportional to refunded total (wallet part paid now)
+        await applyUvReversalFromPurchaseTotals(purchase._id);
       }
     }
 
-    // Now compute how much should go to Razorpay request
     const remainingAfterWallet = refundableRemaining(purchase);
     const razorpayNeed = Math.min(
       remainingAfterWallet,
@@ -145,7 +208,6 @@ router.post("/request", protect, async (req, res) => {
     );
 
     if (razorpayNeed <= 0) {
-      // This can happen if mixed purchase had only wallet remaining
       return res.json({
         message: walletRefundedNow > 0 ? "Wallet part refunded; no Razorpay refund needed" : "No Razorpay refund needed",
         walletRefundedNow,
@@ -187,10 +249,9 @@ router.post("/request", protect, async (req, res) => {
 
 /**
  * ADMIN: GET /api/refunds/admin/pending
- * List pending refund requests
  */
 router.get("/admin/pending", protect, async (req, res) => {
-  try {    
+  try {
     if (!isAdmin(req)) return res.status(403).json({ message: "Admin only" });
 
     const items = await RefundRequest.find({ status: "pending" })
@@ -207,7 +268,6 @@ router.get("/admin/pending", protect, async (req, res) => {
 
 /**
  * ADMIN: POST /api/refunds/admin/:id/reject
- * Body: { adminComment }
  */
 router.post("/admin/:id/reject", protect, async (req, res) => {
   try {
@@ -237,10 +297,11 @@ router.post("/admin/:id/reject", protect, async (req, res) => {
 
 /**
  * ADMIN: POST /api/refunds/admin/:id/approve
- * Body: { adminComment }
  *
- * Approve triggers Razorpay refund for rr.amountInr (INR).
- * Updates Purchase.refundedRazorpayAmount and RefundRequest status.
+ * On Razorpay refund success:
+ *  - updates purchase.refundedRazorpayAmount
+ *  - marks rr completed
+ *  - ✅ reverses UV proportional to total refunded so far
  */
 router.post("/admin/:id/approve", protect, async (req, res) => {
   try {
@@ -261,7 +322,6 @@ router.post("/admin/:id/approve", protect, async (req, res) => {
     const purchase = await Purchase.findById(rr.purchaseId);
     if (!purchase) return res.status(404).json({ message: "Purchase not found" });
 
-    // Safety: refund window check (admin should not refund after window)
     if (!withinRefundWindow(purchase)) {
       rr.status = "rejected";
       rr.reviewedBy = req.user.id;
@@ -271,7 +331,6 @@ router.post("/admin/:id/approve", protect, async (req, res) => {
       return res.status(400).json({ message: "Refund window expired (7 days)", refundRequest: rr });
     }
 
-    // Safety: ensure amount still refundable
     const remaining = refundableRemaining(purchase);
     const need = Math.min(remaining, round2(rr.amountInr || 0));
     if (need <= 0) {
@@ -300,7 +359,6 @@ router.post("/admin/:id/approve", protect, async (req, res) => {
     rr.adminComment = adminComment || "";
     await rr.save();
 
-    // Razorpay refund expects paise
     const amountPaise = Math.round(need * 100);
 
     try {
@@ -320,6 +378,9 @@ router.post("/admin/:id/approve", protect, async (req, res) => {
       rr.razorpayRefundId = rzRefund?.id || null;
       rr.failureReason = "";
       await rr.save();
+
+      // ✅ NEW: reverse UV proportional to refunded total (razorpay part paid now)
+      await applyUvReversalFromPurchaseTotals(purchase._id);
 
       return res.json({
         message: "Razorpay refund successful",
@@ -350,11 +411,6 @@ router.post("/admin/:id/approve", protect, async (req, res) => {
 
 /**
  * USER: GET /api/refunds/my
- * Returns the logged-in user's refund requests (latest first)
- * Optional query params:
- *  - status=pending|approved|rejected|processing|completed|failed
- *  - page=1
- *  - limit=20
  */
 router.get("/my", protect, async (req, res) => {
   try {
@@ -388,6 +444,8 @@ router.get("/my", protect, async (req, res) => {
           "deviceBrand",
           "deviceModel",
           "deviceImei",
+          "uvEarned",
+          "refundedUv",
         ]),
       RefundRequest.countDocuments(filter),
     ]);
@@ -404,6 +462,5 @@ router.get("/my", protect, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
-
 
 export default router;

@@ -1,5 +1,5 @@
 // src/components/ReferralTree.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import {
   FiUsers,
@@ -25,9 +25,12 @@ function buildBinaryTree(treeData) {
 
   const byId = new Map(
     nodes.map((n) => [
-      n.id,
+      String(n.id),
       {
         ...n,
+        id: String(n.id),
+        leftChildId: n.leftChildId ? String(n.leftChildId) : null,
+        rightChildId: n.rightChildId ? String(n.rightChildId) : null,
         left: null,
         right: null,
       },
@@ -40,7 +43,7 @@ function buildBinaryTree(treeData) {
   });
 
   const root =
-    (rootUserId && byId.get(rootUserId)) || (nodes[0] && byId.get(nodes[0].id));
+    (rootUserId && byId.get(String(rootUserId))) || (nodes[0] && byId.get(String(nodes[0].id)));
 
   return root || null;
 }
@@ -115,6 +118,8 @@ const TreeNode = ({
   selectedPosition,
   canSelectPosition,
   isHotPlacement,
+  onNodeClick,
+  currentRootId,
 }) => {
   if (!node || depth > maxDepth) return null;
 
@@ -122,10 +127,22 @@ const TreeNode = ({
   const showRight = !!node.right;
   const hasChildren = showLeft || showRight || canSelectPosition;
 
+  const isNavigable =
+    typeof onNodeClick === "function" && depth > 0 && String(node.id) !== String(currentRootId);
+
+  const nodeCardClasses = [
+    "relative overflow-hidden rounded-2xl border border-neutral-200 bg-white px-3 py-2 shadow-sm min-w-[132px]",
+    isNavigable ? "cursor-pointer hover:border-prim/60 hover:bg-prim/5" : "",
+  ].join(" ");
+
   return (
     <div className="flex flex-col items-center">
       {/* Node */}
-      <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white px-3 py-2 shadow-sm min-w-[132px]">
+      <div
+        className={nodeCardClasses}
+        onClick={isNavigable ? () => onNodeClick(node.id) : undefined}
+        title={isNavigable ? "Click to view this user's tree" : undefined}
+      >
         <div className="absolute inset-x-0 top-0 h-1 bg-prim" />
         <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-prim/20 blur-2xl" />
 
@@ -171,6 +188,8 @@ const TreeNode = ({
                     selectedPosition={selectedPosition}
                     canSelectPosition={canSelectPosition}
                     isHotPlacement={isHotPlacement}
+                    onNodeClick={onNodeClick}
+                    currentRootId={currentRootId}
                   />
                 </div>
               ) : (
@@ -181,7 +200,7 @@ const TreeNode = ({
                     isHotPlacement={isHotPlacement}
                     isSelected={
                       !!selectedPosition &&
-                      selectedPosition.parentId === node.id &&
+                      String(selectedPosition.parentId) === String(node.id) &&
                       selectedPosition.side === "left"
                     }
                     onClick={() =>
@@ -206,6 +225,8 @@ const TreeNode = ({
                     selectedPosition={selectedPosition}
                     canSelectPosition={canSelectPosition}
                     isHotPlacement={isHotPlacement}
+                    onNodeClick={onNodeClick}
+                    currentRootId={currentRootId}
                   />
                 </div>
               ) : (
@@ -216,7 +237,7 @@ const TreeNode = ({
                     isHotPlacement={isHotPlacement}
                     isSelected={
                       !!selectedPosition &&
-                      selectedPosition.parentId === node.id &&
+                      String(selectedPosition.parentId) === String(node.id) &&
                       selectedPosition.side === "right"
                     }
                     onClick={() =>
@@ -276,7 +297,7 @@ const SideSummaryBox = ({ side, nodes, disabled, onPlace, isHotPlacement }) => {
         ) : (
           <ul className="space-y-1">
             {nodes.map((n) => (
-              <li key={n.id} className="flex items-center justify-between text-[11px]">
+              <li key={String(n.id)} className="flex items-center justify-between text-[11px]">
                 <span className="truncate max-w-[140px] text-neutral-900">
                   {n.name || "User"}
                 </span>
@@ -316,21 +337,50 @@ const ReferralTree = () => {
   const [placementError, setPlacementError] = useState("");
   const [placementSuccess, setPlacementSuccess] = useState("");
 
-  const fetchTree = async (headers) => {
-    try {
-      setTreeLoading(true);
-      setTreeError("");
-      const res = await axios.get(`${API_BASE_URL}/referrals/tree`, { headers });
-      setTreeData(res.data);
-    } catch (err) {
-      console.error(err);
-      setTreeError(err.response?.data?.message || "Failed to load referrals.");
-    } finally {
-      setTreeLoading(false);
-    }
+  // ✅ NEW: viewing tree navigation
+  const [myUserId, setMyUserId] = useState(null);
+  const [viewRootUserId, setViewRootUserId] = useState(null);
+  const [viewStack, setViewStack] = useState([]); // history stack of rootUserIds
+
+  const getAuthHeaders = () => {
+    const token = sessionStorage.getItem("token");
+    if (!token) return null;
+    return { Authorization: `Bearer ${token}` };
   };
 
-  const fetchRequests = async (headers) => {
+  const fetchMe = async (headers) => {
+    const res = await axios.get(`${API_BASE_URL}/users/me`, { headers });
+    const id = res.data?.id || res.data?._id;
+    if (id) setMyUserId(String(id));
+    return res.data;
+  };
+
+  const fetchTree = useCallback(
+    async (headers, rootUserId = null) => {
+      try {
+        setTreeLoading(true);
+        setTreeError("");
+
+        const res = await axios.get(`${API_BASE_URL}/referrals/tree`, {
+          headers,
+          params: rootUserId ? { rootUserId } : undefined, // ✅ new TreeNode API supports this
+        });
+
+        setTreeData(res.data);
+
+        const effectiveRoot = String(res.data?.treeOwnerId || rootUserId || "");
+        if (effectiveRoot) setViewRootUserId(effectiveRoot);
+      } catch (err) {
+        console.error(err);
+        setTreeError(err.response?.data?.message || "Failed to load referrals.");
+      } finally {
+        setTreeLoading(false);
+      }
+    },
+    []
+  );
+
+  const fetchRequests = useCallback(async (headers) => {
     try {
       setRequestsLoading(true);
       setRequestsError("");
@@ -344,22 +394,29 @@ const ReferralTree = () => {
     } finally {
       setRequestsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const init = async () => {
-      const token = sessionStorage.getItem("token");
-      if (!token) {
+      const headers = getAuthHeaders();
+      if (!headers) {
         const msg = "No auth token found. Please log in again.";
         setTreeError(msg);
         setRequestsError(msg);
         return;
       }
-      const headers = { Authorization: `Bearer ${token}` };
+
+      // ✅ get my id once, then load my tree + requests
+      try {
+        await fetchMe(headers);
+      } catch (e) {
+        console.error("Failed to fetch /users/me:", e);
+      }
+
       await Promise.all([fetchTree(headers), fetchRequests(headers)]);
     };
     init();
-  }, []);
+  }, [ fetchTree, fetchRequests]);
 
   useEffect(() => {
     const fetchHotMinUV = async () => {
@@ -375,6 +432,16 @@ const ReferralTree = () => {
   }, []);
 
   const rootNode = useMemo(() => buildBinaryTree(treeData), [treeData]);
+
+  const effectiveRootId = useMemo(() => {
+    return String(viewRootUserId || treeData?.rootUserId || "");
+  }, [viewRootUserId, treeData]);
+
+  const isViewingOwnTree = useMemo(() => {
+    if (!myUserId) return true; // best effort until /me loads
+    if (!effectiveRootId) return true;
+    return String(myUserId) === String(effectiveRootId);
+  }, [myUserId, effectiveRootId]);
 
   const { leftSideNodes, rightSideNodes } = useMemo(() => {
     const left = [];
@@ -398,7 +465,6 @@ const ReferralTree = () => {
     return { leftSideNodes: left, rightSideNodes: right };
   }, [rootNode]);
 
-  // ✅ NEW LOGIC:
   // - If referralActive is true -> NOT hot (ever)
   // - Hot only if (referralActive is false) AND (selfVolume >= hotMinUV)
   // - Everything else goes into "Pending"
@@ -428,12 +494,14 @@ const ReferralTree = () => {
 
   const selectedParentNode = useMemo(() => {
     if (!selectedPosition || !treeData?.nodes) return null;
-    return treeData.nodes.find((n) => n.id === selectedPosition.parentId) || null;
+    return (
+      treeData.nodes.find((n) => String(n.id) === String(selectedPosition.parentId)) || null
+    );
   }, [selectedPosition, treeData]);
 
   const handleSelectPlacementUser = (user, source) => {
-    const id = user._id || user.id;
-    const selectedId = selectedPlacementUser && (selectedPlacementUser._id || selectedPlacementUser.id);
+    const id = String(user._id || user.id);
+    const selectedId = selectedPlacementUser && String(selectedPlacementUser._id || selectedPlacementUser.id);
 
     if (selectedId === id && selectedPlacementSource === source) {
       setSelectedPlacementUser(null);
@@ -453,6 +521,7 @@ const ReferralTree = () => {
 
   const handleSelectTreePosition = ({ parentId, side }) => {
     if (!selectedPlacementUser) return;
+    if (!isViewingOwnTree) return;
     setSelectedPosition({ parentId, side });
     setPlacementError("");
     setPlacementSuccess("");
@@ -460,6 +529,8 @@ const ReferralTree = () => {
 
   const handleSidePlacement = (side) => {
     if (!selectedPlacementUser || !rootNode) return;
+    if (!isViewingOwnTree) return;
+
     const best = findBestPositionForSide(rootNode, side);
     if (!best) {
       setPlacementError(`No free slot on ${side}.`);
@@ -477,15 +548,22 @@ const ReferralTree = () => {
 
     if (!selectedPlacementUser || !selectedPosition) return;
 
-    const token = sessionStorage.getItem("token");
-    if (!token) {
+    if (!isViewingOwnTree) {
+      setPlacementError("Go back to your own tree to place users.");
+      return;
+    }
+
+    const headers = getAuthHeaders();
+    if (!headers) {
       setPlacementError("No auth token found. Please log in again.");
       return;
     }
 
-    const headers = { Authorization: `Bearer ${token}` };
-    const childId = selectedPlacementUser._id || selectedPlacementUser.id;
-    const { parentId, side } = selectedPosition;
+    const childId = String(selectedPlacementUser._id || selectedPlacementUser.id);
+    const parentUser = String(selectedPosition.parentId);
+
+    // ✅ TreeNode placement API: parentUser + side (L/R)
+    const side = selectedPosition.side === "left" ? "left" : "right";
 
     try {
       setPlacementLoading(true);
@@ -493,9 +571,9 @@ const ReferralTree = () => {
       const res = await axios.post(
         `${API_BASE_URL}/referrals/place`,
         {
-          parentId,
+          parentId:parentUser,
           childId,
-          position: side,
+          position:side,
           is_hotposition: selectedPlacementSource === "hot",
         },
         { headers }
@@ -517,6 +595,53 @@ const ReferralTree = () => {
   };
 
   const isHotPlacementMode = !!selectedPlacementUser && selectedPlacementSource === "hot";
+  const canPlaceNow = !!selectedPlacementUser && isViewingOwnTree;
+
+  const handleNodeClick = async (targetUserId) => {
+    const headers = getAuthHeaders();
+    if (!headers) {
+      setTreeError("No auth token found. Please log in again.");
+      return;
+    }
+
+    const target = String(targetUserId);
+    const current = String(effectiveRootId || "");
+    console.log("calling api", current,"target",target,"effective", effectiveRootId);
+    if (!target || !current || target === current) return;
+
+    // push current view to history, then navigate
+    setViewStack((prev) => [...prev, current]);
+
+    // clear placement selection when navigating (prevents confusion)
+    setSelectedPosition(null);
+    setPlacementError("");
+    setPlacementSuccess("");
+    
+
+    await fetchTree(headers, target);
+  };
+
+  const handleBack = async () => {
+    const headers = getAuthHeaders();
+    if (!headers) {
+      setTreeError("No auth token found. Please log in again.");
+      return;
+    }
+
+    setTreeError("");
+
+    const prevRoot = viewStack[viewStack.length - 1];
+    if (!prevRoot) return;
+
+    setViewStack((prev) => prev.slice(0, -1));
+
+    // clear placement selection when changing view
+    setSelectedPosition(null);
+    setPlacementError("");
+    setPlacementSuccess("");
+
+    await fetchTree(headers, prevRoot);
+  };
 
   return (
     <section className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
@@ -526,13 +651,46 @@ const ReferralTree = () => {
 
       <div className="relative flex items-start justify-between gap-4 mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-neutral-900 flex items-center gap-2">
-            <FiGitBranch className="h-5 w-5 text-neutral-900" />
-            Referrals
-          </h2>
+          <div className="flex items-center gap-2">
+            {viewStack.length > 0 && (
+              <button
+                type="button"
+                onClick={handleBack}
+                className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-50"
+              >
+                <FiArrowLeft className="h-4 w-4" />
+                Back
+              </button>
+            )}
+
+            <h2 className="text-lg font-semibold text-neutral-900 flex items-center gap-2">
+              <FiGitBranch className="h-5 w-5 text-neutral-900" />
+              Referrals
+            </h2>
+          </div>
+
           <p className="mt-1 text-xs text-neutral-600">
-            Pick a user, then choose a spot in the tree.
+            {rootNode?.name ? (
+              <>
+                Viewing tree: <span className="font-semibold text-neutral-900">{rootNode.name}</span>
+                {!isViewingOwnTree && (
+                  <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
+                    <FiInfo className="h-3 w-3" />
+                    View only
+                  </span>
+                )}
+              </>
+            ) : (
+              "Pick a user, then choose a spot in the tree."
+            )}
           </p>
+
+          {!isViewingOwnTree && (
+            <div className="mt-2 inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+              <FiInfo className="h-4 w-4" />
+              You can browse downlines. To place users, go back to your own tree.
+            </div>
+          )}
         </div>
 
         {treeData && (
@@ -572,14 +730,14 @@ const ReferralTree = () => {
             <SideSummaryBox
               side="left"
               nodes={leftSideNodes}
-              disabled={!selectedPlacementUser}
+              disabled={!canPlaceNow}
               isHotPlacement={isHotPlacementMode}
               onPlace={() => handleSidePlacement("left")}
             />
             <SideSummaryBox
               side="right"
               nodes={rightSideNodes}
-              disabled={!selectedPlacementUser}
+              disabled={!canPlaceNow}
               isHotPlacement={isHotPlacementMode}
               onPlace={() => handleSidePlacement("right")}
             />
@@ -593,8 +751,10 @@ const ReferralTree = () => {
                   node={rootNode}
                   onSelectPosition={handleSelectTreePosition}
                   selectedPosition={selectedPosition}
-                  canSelectPosition={!!selectedPlacementUser}
+                  canSelectPosition={canPlaceNow}
                   isHotPlacement={isHotPlacementMode}
+                  onNodeClick={handleNodeClick}
+                  currentRootId={effectiveRootId}
                 />
               </div>
             </div>
@@ -638,9 +798,9 @@ const ReferralTree = () => {
 
                     <div className="space-y-2">
                       {regularRequests.map((user) => {
-                        const id = user._id || user.id;
+                        const id = String(user._id || user.id);
                         const selectedId =
-                          selectedPlacementUser && (selectedPlacementUser._id || selectedPlacementUser.id);
+                          selectedPlacementUser && String(selectedPlacementUser._id || selectedPlacementUser.id);
                         const isSelected = selectedId === id && selectedPlacementSource === "regular";
 
                         return (
@@ -685,9 +845,9 @@ const ReferralTree = () => {
 
                     <div className="space-y-2">
                       {hotPositionRequests.map((user) => {
-                        const id = user._id || user.id;
+                        const id = String(user._id || user.id);
                         const selectedId =
-                          selectedPlacementUser && (selectedPlacementUser._id || selectedPlacementUser.id);
+                          selectedPlacementUser && String(selectedPlacementUser._id || selectedPlacementUser.id);
                         const isSelected = selectedId === id && selectedPlacementSource === "hot";
 
                         return (
@@ -732,9 +892,9 @@ const ReferralTree = () => {
 
                     <div className="space-y-2">
                       {pendingRequests.map((user) => {
-                        const id = user._id || user.id;
+                        const id = String(user._id || user.id);
                         const selectedId =
-                          selectedPlacementUser && (selectedPlacementUser._id || selectedPlacementUser.id);
+                          selectedPlacementUser && String(selectedPlacementUser._id || selectedPlacementUser.id);
                         const isSelected = selectedId === id && selectedPlacementSource === "pending";
 
                         return (
@@ -786,7 +946,9 @@ const ReferralTree = () => {
                     </div>
 
                     <div className="mt-2 text-[10px] text-neutral-600">
-                      {selectedPosition ? (
+                      {!isViewingOwnTree ? (
+                        "Go back to your tree to choose a slot."
+                      ) : selectedPosition ? (
                         <>
                           Under{" "}
                           <span className="font-semibold text-neutral-900">
@@ -814,11 +976,11 @@ const ReferralTree = () => {
 
                     <button
                       type="button"
-                      disabled={!selectedPosition || placementLoading}
+                      disabled={!selectedPosition || placementLoading || !isViewingOwnTree}
                       onClick={handleSavePlacement}
                       className={[
                         "mt-3 w-full inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold transition focus:outline-none focus:ring-2",
-                        !selectedPosition || placementLoading
+                        !selectedPosition || placementLoading || !isViewingOwnTree
                           ? "bg-neutral-200 text-neutral-500 cursor-not-allowed"
                           : isHotPlacementMode
                           ? "bg-amber-500 text-white hover:bg-amber-600 focus:ring-amber-200"

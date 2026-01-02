@@ -116,7 +116,7 @@ const TopMetrics = () => {
     walletBalance: 0,
     leftVolume: 0,
     rightVolume: 0,
-    referredBy: null,
+    placement:null,
     referralUsed: null,
     referralCode: null,
     referralActive: false,
@@ -160,7 +160,7 @@ const TopMetrics = () => {
         walletBalance: user.walletBalance ?? 0,
         rightVolume: user.rightVolume ?? 0,
         leftVolume: user.leftVolume ?? 0,
-        referredBy: user.referredBy || null,
+        placement:user.placement || null,
         referralUsed: user.referralUsed || null,
         referralCode: user.referralCode || null,
         referralActive: user.referralActive || false,
@@ -300,7 +300,7 @@ const TopMetrics = () => {
     walletBalance,
     rightVolume,
     leftVolume,
-    referredBy,
+    placement,
     referralCode,
     referralActive,
     referralUsed,
@@ -519,16 +519,16 @@ const TopMetrics = () => {
               </p>
             )}
 
-            {referredBy ? (
+            {placement?.parentUser?.id ? (
               <div className="flex items-center gap-2">
                 <Pill tone="prim">Placed under</Pill>
                 <span className="text-sm font-medium text-neutral-900">
-                  {referredBy.name || "User"}
+                  {placement.parentUser.name || "User"}
                 </span>
               </div>
             ) : null}
 
-            {!referredBy && (
+            {!placement?.parentUser?.id && (
               <form
                 onSubmit={handleApplyReferral}
                 className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end"

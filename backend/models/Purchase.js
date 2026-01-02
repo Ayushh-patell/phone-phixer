@@ -30,6 +30,11 @@ const PurchaseSchema = new mongoose.Schema(
     razorpayOrderId: { type: String, default: null, index: true },
     razorpayPaymentId: { type: String, default: null, index: true },
 
+    
+    
+    refundedUv: { type: Number, default: 0 }, // how much UV already reversed for this purchase
+    // OPTIONAL but recommended for perfect correctness if sponsor could change before placement:
+    referralUsedSnapshot: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     // Refund tracking (optional but useful)
     refundedWalletAmount: { type: Number, default: 0 },   // INR
     refundedRazorpayAmount: { type: Number, default: 0 }, // INR

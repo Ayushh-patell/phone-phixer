@@ -1,5 +1,6 @@
 // lib/PlacementLogic.js
 import User from "../models/User.js";
+import TreeNode from "../models/TreeNode.js";
 
 /**
  * Compute total volume for a user's subtree:
@@ -14,104 +15,145 @@ const computeSubtreeVolume = (user) => {
   return self + left + right;
 };
 
+const normalizePos = (position) => {
+  const p = String(position).toLowerCase();
+  if (p === "left" || p === "l") return "left";
+  if (p === "right" || p === "r") return "right";
+  throw new Error(`Invalid position '${position}'`);
+};
+
+const nodeSideToPos = (nodeSide) => {
+  if (nodeSide === "L") return "left";
+  if (nodeSide === "R") return "right";
+  return null; // "root" or invalid
+};
+
 /**
- * Recursively updates left/right volumes up the tree.
+ * Updates volumes up the tree (TreeNode based).
  *
- * Per-user hotposition logic:
- *  - At each ancestor (parent, grandparent, ...):
- *    - If that ancestor has at_hotposition === true, they receive uv / 2
- *    - Otherwise they receive full uv
- *  - The uv argument itself is NOT mutated as we go up.
+ * Hotposition logic (per-ancestor, per-tree):
+ *  - At each ancestor in THIS treeOwner's tree:
+ *      if ancestor's TreeNode.at_hotposition === true -> receives uv/2
+ *      else -> receives full uv
+ *  - uv itself is NOT mutated as we go up.
  *
- * @param {Object} parent - parent user document (Mongoose)
- * @param {Number} uv - UV to add (base UV, before hotposition adjustments)
- * @param {String} side - 'left' or 'right' (which side on this parent)
+ * IMPORTANT:
+ *  - This must traverse ONLY inside the given treeOwnerId's TreeNode graph.
+ *
+ * @param {String|ObjectId} treeOwnerId - The owner of the tree we are updating
+ * @param {String|ObjectId} startParentId - The immediate parent where child was attached
+ * @param {Number} uv - base UV to propagate (child's subtree total)
+ * @param {"left"|"right"} side - which side to increment on the startParent
  */
-export const updateVolumes = async (parent, uv, side) => {
-  if (!parent || !uv || uv === 0) return;
+export const updateVolumes = async (treeOwnerId, startParentId, uv, side) => {
+  if (!treeOwnerId) throw new Error("updateVolumes: treeOwnerId is required");
+  if (!startParentId) throw new Error("updateVolumes: startParentId is required");
+  if (!uv || uv === 0) return;
 
-  // Apply hotposition logic PER ancestor
-  let volumeToAdd = uv;
-  if (parent.at_hotposition) {
-    volumeToAdd = uv / 2;
-  }
+  const normalizedSide = normalizePos(side);
 
-  if (side === "left") {
-    parent.leftVolume = (parent.leftVolume || 0) + volumeToAdd;
-  } else if (side === "right") {
-    parent.rightVolume = (parent.rightVolume || 0) + volumeToAdd;
-  } else {
-    throw new Error(`updateVolumes: invalid side '${side}'`);
-  }
+  // Safety limit to avoid infinite loops if data is corrupted
+  const MAX_HOPS = 500;
 
-  await parent.save();
+  let currentParentId = startParentId;
+  let currentSide = normalizedSide; // side relative to currentParent
 
-  // Move up the tree
-  if (parent.referredBy) {
-    const grandParent = await User.findById(parent.referredBy);
+  for (let hops = 0; hops < MAX_HOPS; hops++) {
+    // Find this parent node in THIS tree (needed for at_hotposition + to go upward)
+    const currentParentNode = await TreeNode.findOne({
+      treeOwner: treeOwnerId,
+      user: currentParentId,
+    })
+      .select("parentUser side at_hotposition")
+      .lean();
 
-    if (grandParent) {
-      // Determine which side of grandParent this parent is on
-      const parentIdStr = parent._id.toString();
-      const isLeft =
-        grandParent.leftChild &&
-        grandParent.leftChild.toString() === parentIdStr;
-
-      const parentSide = isLeft ? "left" : "right";
-
-      // IMPORTANT: pass the original uv, not volumeToAdd
-      // so each ancestor independently applies its own hotposition rule.
-      await updateVolumes(grandParent, uv, parentSide);
+    // If parent isn't represented in this tree, we can't safely traverse further
+    if (!currentParentNode) {
+      break;
     }
+
+    // Apply hotposition per ancestor (from TreeNode, not User)
+    const isHot = !!currentParentNode.at_hotposition;
+    const volumeToAdd = isHot ? uv / 2 : uv;
+
+    // Apply volume to the User document
+    if (currentSide === "left") {
+      await User.updateOne(
+        { _id: currentParentId },
+        { $inc: { leftVolume: volumeToAdd } }
+      );
+    } else if (currentSide === "right") {
+      await User.updateOne(
+        { _id: currentParentId },
+        { $inc: { rightVolume: volumeToAdd } }
+      );
+    } else {
+      throw new Error(`updateVolumes: invalid side '${currentSide}'`);
+    }
+
+    // Move up to grandparent inside the SAME treeOwner
+    const grandParentId = currentParentNode.parentUser;
+
+    // If no grandparent -> reached root
+    if (!grandParentId) {
+      break;
+    }
+
+    // Determine which side this parent occupies under grandparent
+    // This is stored on the parent's node as L/R (relative to its parent)
+    const parentSideUnderGrand = nodeSideToPos(currentParentNode.side);
+    if (!parentSideUnderGrand) {
+      // "root" or invalid side -> stop
+      break;
+    }
+
+    currentParentId = grandParentId;
+    currentSide = parentSideUnderGrand;
   }
 };
 
 /**
- * To be called AFTER you manually attach `child` under `parent`
- * at the specified position ("left" | "right").
+ * Call AFTER inserting TreeNode for child under parent in a given treeOwner's tree.
  *
  * It:
- *  - loads parent and child fresh
+ *  - loads parent + child fresh
  *  - computes child's total subtree volume
- *  - calls updateVolumes to propagate up the tree
- *
- * Hotposition behavior:
- *  - Any ancestor (including parent) that has at_hotposition === true
- *    will receive half of the child's subtree UV.
+ *  - calls updateVolumes(treeOwnerId, parentId, uv, position)
  *
  * @param {String|ObjectId} parentId
  * @param {String|ObjectId} childId
  * @param {"left"|"right"} position
+ * @param {String|ObjectId} treeOwnerId - REQUIRED in TreeNode setup
  */
 export const applyVolumeForNewChildPlacement = async (
   parentId,
   childId,
-  position
+  position,
+  treeOwnerId
 ) => {
-  const parent = await User.findById(parentId);
-  const child = await User.findById(childId);
+  if (!treeOwnerId) {
+    throw new Error(
+      "applyVolumeForNewChildPlacement: treeOwnerId is required in TreeNode setup"
+    );
+  }
+
+  const parent = await User.findById(parentId).select("_id");
+  const child = await User.findById(childId).select(
+    "_id selfVolume leftVolume rightVolume"
+  );
 
   if (!parent || !child) {
     throw new Error("applyVolumeForNewChildPlacement: parent or child not found");
   }
 
-  const normalizedPos = String(position).toLowerCase();
-  if (!["left", "right"].includes(normalizedPos)) {
-    throw new Error(
-      `applyVolumeForNewChildPlacement: invalid position '${position}'`
-    );
-  }
+  const normalizedPos = normalizePos(position);
 
-  // Use full subtree volume for the child.
-  // Hotposition is applied PER ancestor inside updateVolumes.
+  // Child subtree total UV (ancestor hotposition applied inside updateVolumes)
   const uv = computeSubtreeVolume(child);
 
-  if (uv === 0) {
-    // nothing to add, but not an error
-    return;
-  }
+  if (uv === 0) return;
 
-  await updateVolumes(parent, uv, normalizedPos);
+  await updateVolumes(treeOwnerId, parent._id, uv, normalizedPos);
 };
 
 /**

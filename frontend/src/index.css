@@ -4,4 +4,13 @@
 @theme {
           --color-prim: #79cdcb;
           --color-dark: #0f172a;
+          --color-primDark:#00bbb8;
+}
+
+body {
+    background-color: whitesmoke;
+}
+
+* {
+    /* outline: 1px solid black; */
 }

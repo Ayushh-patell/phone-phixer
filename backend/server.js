@@ -13,6 +13,7 @@ import starEligibilityRoutes from "./routes/starEligibilityRoutes.js";
 import checkRoutes from "./routes/checkRoutes.js";
 import purchaseRoutes from "./routes/purchasesRoutes.js";
 import refundsRoutes from "./routes/refundRoutes.js";
+import walletRoutes from "./routes/walletRoutes.js";
 import withdrawalWebhookRoutes from "./routes/withdrawlWebhookRoutes.js";
 import withdrawalRoutes from "./routes/withdrawlRoutes.js";
 
@@ -51,6 +52,7 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/checks", checkRoutes);
 app.use("/api/purchases", purchaseRoutes);
 app.use("/api/refunds", refundsRoutes);
+app.use("/api/wallet", walletRoutes);
 
 app.use("/api/withdrawals", withdrawalRoutes);
 

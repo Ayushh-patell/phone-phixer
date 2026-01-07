@@ -11,6 +11,7 @@ import { placeInReferralTree } from "../lib/PlacementLogic.js";
 import { getStarLevels } from "../lib/starLogic.js";
 import { getSandboxToken } from "../lib/sandboxClient.js";
 import TreeNode from "../models/TreeNode.js";
+import mongoose from "mongoose";
 
 
 
@@ -471,7 +472,7 @@ router.post("/verify-code", async (req, res) => {
     await User.findByIdAndUpdate(userId, { verified: true, referralCode: refCode });
     await Code.deleteMany({ userId, type: "email_verify" });
 
-    res.json({ message: "Email verified successfully", referralCode:user.referralCode });
+    res.json({ message: "Email verified successfully", referralCode:refCode });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error" });

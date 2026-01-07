@@ -13,9 +13,9 @@ import {
   FiUsers,
   FiGift,
   FiLink,
-  FiX, FiSend
+  FiX,
+  FiSend,
 } from "react-icons/fi";
-
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -33,11 +33,10 @@ function MetricCard({ label, value, sub, Icon, highlight = false }) {
       className={[
         "relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition",
         "hover:shadow-md",
-        "border-t-4 border-t-prim", // <-- makes prim VERY visible
-        highlight ? "ring-2 ring-prim/30" : "ring-0", // <-- highlight without changing border color
+        "border-t-4 border-t-prim",
+        highlight ? "ring-2 ring-prim/30" : "ring-0",
       ].join(" ")}
     >
-      {/* subtle prim glow */}
       <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-prim/20 blur-3xl" />
 
       <div className="flex items-start justify-between gap-3">
@@ -104,6 +103,18 @@ const TopMetrics = () => {
     ifsc: "",
   });
 
+  // ✅ Transfer modal state
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferStep, setTransferStep] = useState("details"); // "details" | "otp"
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferError, setTransferError] = useState("");
+  const [transferSuccess, setTransferSuccess] = useState("");
+  const [transferPreview, setTransferPreview] = useState(null); // returned from request endpoint (receiver details)
+  const [transferForm, setTransferForm] = useState({
+    amount: "",
+    receiver: "", // email or referral code
+    otp: "",
+  });
 
   const [referralUvThreshold, setReferralUvThreshold] = useState(5);
 
@@ -116,7 +127,7 @@ const TopMetrics = () => {
     walletBalance: 0,
     leftVolume: 0,
     rightVolume: 0,
-    placement:null,
+    placement: null,
     referralUsed: null,
     referralCode: null,
     referralActive: false,
@@ -160,7 +171,7 @@ const TopMetrics = () => {
         walletBalance: user.walletBalance ?? 0,
         rightVolume: user.rightVolume ?? 0,
         leftVolume: user.leftVolume ?? 0,
-        placement:user.placement || null,
+        placement: user.placement || null,
         referralUsed: user.referralUsed || null,
         referralCode: user.referralCode || null,
         referralActive: user.referralActive || false,
@@ -182,9 +193,7 @@ const TopMetrics = () => {
   useEffect(() => {
     const fetchReferralThreshold = async () => {
       try {
-        const res = await axios.get(
-          `${API_BASE_URL}/settings/referralActive_limit`
-        );
+        const res = await axios.get(`${API_BASE_URL}/settings/referralActive_limit`);
         const numeric = Number(res.data?.value);
         if (!Number.isNaN(numeric) && numeric > 0) setReferralUvThreshold(numeric);
       } catch (err) {
@@ -268,6 +277,100 @@ const TopMetrics = () => {
       setTimeout(() => setCopied(false), 1200);
     } catch (err) {
       console.error("Failed to copy:", err);
+    }
+  };
+
+  // ✅ Transfer helpers
+  const openTransferModal = () => {
+    setTransferError("");
+    setTransferSuccess("");
+    setTransferPreview(null);
+    setTransferStep("details");
+    setTransferForm({ amount: "", receiver: "", otp: "" });
+    setShowTransferModal(true);
+  };
+
+  const closeTransferModal = () => {
+    setShowTransferModal(false);
+    setTransferError("");
+    setTransferSuccess("");
+    setTransferPreview(null);
+    setTransferStep("details");
+    setTransferLoading(false);
+    setTransferForm({ amount: "", receiver: "", otp: "" });
+  };
+
+  const submitTransferRequestOtp = async (e) => {
+    e.preventDefault();
+    setTransferError("");
+    setTransferSuccess("");
+
+    const token = sessionStorage.getItem("token");
+    if (!token) return setTransferError("No auth token found. Please log in again.");
+
+    const amt = Number(transferForm.amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return setTransferError("Enter a valid amount.");
+    }
+    if (amt > Number(userInfo.walletBalance || 0)) {
+      return setTransferError("Amount exceeds wallet balance.");
+    }
+
+    const receiver = String(transferForm.receiver || "").trim();
+    if (!receiver) return setTransferError("Enter receiver email or referral code.");
+
+    try {
+      setTransferLoading(true);
+
+      // ✅ This matches the backend routes I gave you:
+      // POST /api/wallet/transfer/request { amount, receiver }
+      const res = await axios.post(
+        `${API_BASE_URL}/wallet/transfer/request`,
+        { amount: amt, receiver },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setTransferPreview(res.data?.transfer || null);
+      setTransferStep("otp");
+      setTransferSuccess("OTP sent to your email.");
+    } catch (err) {
+      console.error(err);
+      setTransferError(err.response?.data?.message || "Failed to send OTP.");
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
+  const submitTransferConfirmOtp = async (e) => {
+    e.preventDefault();
+    setTransferError("");
+    setTransferSuccess("");
+
+    const token = sessionStorage.getItem("token");
+    if (!token) return setTransferError("No auth token found. Please log in again.");
+
+    const otp = String(transferForm.otp || "").trim();
+    if (!otp || otp.length < 4) return setTransferError("Enter the OTP.");
+
+    try {
+      setTransferLoading(true);
+
+      // POST /api/wallet/transfer/confirm { otp }
+      const res = await axios.post(
+        `${API_BASE_URL}/wallet/transfer/confirm`,
+        { otp },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setTransferSuccess(res.data?.message || "Transfer successful.");
+      await fetchUserInfo(); // refresh balance
+      // keep modal open briefly with success, or close immediately:
+      // closeTransferModal();
+    } catch (err) {
+      console.error(err);
+      setTransferError(err.response?.data?.message || "Failed to confirm transfer.");
+    } finally {
+      setTransferLoading(false);
     }
   };
 
@@ -355,32 +458,42 @@ const TopMetrics = () => {
           sub="Current UV on the right side of your tree."
           Icon={FiArrowRight}
         />
-      <MetricCard
-        label="Wallet Balance"
-        value={`₹${Number(walletBalance || 0).toFixed(2)}`}
-        sub={
-          <button
-            onClick={() => setShowWithdrawModal(true)}
-            className="mt-2 inline-flex items-center gap-2 rounded-lg border border-prim/40 bg-prim/20 px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-prim/30 transition"
-          >
-            <FiSend className="h-3.5 w-3.5" />
-            Withdraw
-          </button>
-        }
-        Icon={FiCreditCard}
-      />
+
+        <MetricCard
+          label="Wallet Balance"
+          value={`₹${Number(walletBalance || 0).toFixed(2)}`}
+          sub={
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {/* Withdraw */}
+              <button
+                onClick={() => setShowWithdrawModal(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-prim/40 bg-prim/20 px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-prim/30 transition"
+              >
+                <FiSend className="h-3.5 w-3.5" />
+                Withdraw
+              </button>
+
+              {/* ✅ Transfer */}
+              <button
+                onClick={openTransferModal}
+                className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-50 transition"
+              >
+                <FiSend className="h-3.5 w-3.5" />
+                Transfer
+              </button>
+            </div>
+          }
+          Icon={FiCreditCard}
+        />
       </section>
 
       {/* Referral + Sponsor/Placement */}
       <section className="mb-6">
         <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-5">
-          {/* Strong prim accent bar */}
           <div className="absolute inset-x-0 top-0 h-1.5 bg-prim" />
-
           <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-prim/20 blur-3xl" />
           <div className="pointer-events-none absolute -left-20 -bottom-24 h-56 w-56 rounded-full bg-prim/15 blur-3xl" />
 
-          {/* Referral header */}
           <div className="relative flex items-start justify-between gap-4 pt-2">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-xl bg-prim/20 ring-1 ring-prim/30">
@@ -467,7 +580,9 @@ const TopMetrics = () => {
               </div>
 
               {joinError && <p className="mt-3 text-sm text-red-600">{joinError}</p>}
-              {joinSuccess && <p className="mt-3 text-sm text-emerald-700">{joinSuccess}</p>}
+              {joinSuccess && (
+                <p className="mt-3 text-sm text-emerald-700">{joinSuccess}</p>
+              )}
 
               {canJoinProgram && (
                 <button
@@ -484,7 +599,6 @@ const TopMetrics = () => {
 
           <div className="h-px bg-neutral-200" />
 
-          {/* Sponsor & placement */}
           <div className="relative space-y-3">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-xl bg-prim/20 ring-1 ring-prim/30">
@@ -551,7 +665,9 @@ const TopMetrics = () => {
                     </div>
                   </div>
 
-                  {applyError ? <p className="mt-2 text-sm text-red-600">{applyError}</p> : null}
+                  {applyError ? (
+                    <p className="mt-2 text-sm text-red-600">{applyError}</p>
+                  ) : null}
                   {applySuccess ? (
                     <p className="mt-2 text-sm text-emerald-700">{applySuccess}</p>
                   ) : null}
@@ -562,7 +678,11 @@ const TopMetrics = () => {
                   disabled={applyLoading}
                   className="inline-flex items-center justify-center rounded-xl bg-prim px-4 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-prim/40 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {applyLoading ? "Applying..." : sponsor ? "Change referrer" : "Apply referral"}
+                  {applyLoading
+                    ? "Applying..."
+                    : sponsor
+                    ? "Change referrer"
+                    : "Apply referral"}
                 </button>
               </form>
             )}
@@ -570,179 +690,404 @@ const TopMetrics = () => {
         </div>
       </section>
 
+      {/* Withdraw Modal */}
+      {showWithdrawModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-neutral-200 p-4">
+              <h2 className="text-sm font-semibold text-neutral-900">
+                Withdraw wallet balance
+              </h2>
+              <button
+                onClick={() => setShowWithdrawModal(false)}
+                className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100"
+              >
+                <FiX className="h-4 w-4" />
+              </button>
+            </div>
 
-{showWithdrawModal && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-    <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-xl">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-neutral-200 p-4">
-        <h2 className="text-sm font-semibold text-neutral-900">
-          Withdraw wallet balance
-        </h2>
-        <button
-          onClick={() => setShowWithdrawModal(false)}
-          className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100"
-        >
-          <FiX className="h-4 w-4" />
-        </button>
-      </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setWithdrawError("");
+                setWithdrawSuccess("");
 
-      {/* Body */}
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setWithdrawError("");
-          setWithdrawSuccess("");
+                const amt = Number(withdrawForm.amount);
 
-          const amt = Number(withdrawForm.amount);
+                if (!Number.isFinite(amt) || amt < 100) {
+                  return setWithdrawError("Minimum withdrawal amount is ₹100.");
+                }
 
-          if (!Number.isFinite(amt) || amt < 100) {
-            return setWithdrawError("Minimum withdrawal amount is ₹100.");
-          }
+                if (amt > Number(walletBalance || 0)) {
+                  return setWithdrawError("Amount exceeds wallet balance.");
+                }
 
-          if (amt > Number(walletBalance || 0)) {
-            return setWithdrawError("Amount exceeds wallet balance.");
-          }
+                const { name, accountNumber, ifsc } = withdrawForm;
+                if (!name || !accountNumber || !ifsc) {
+                  return setWithdrawError("Please fill all bank details.");
+                }
 
-          const { name, accountNumber, ifsc } = withdrawForm;
-          if (!name || !accountNumber || !ifsc) {
-            return setWithdrawError("Please fill all bank details.");
-          }
+                try {
+                  setWithdrawLoading(true);
+                  const token = sessionStorage.getItem("token");
 
-          try {
-            setWithdrawLoading(true);
-            const token = sessionStorage.getItem("token");
+                  await axios.post(
+                    `${API_BASE_URL}/withdrawals/request`,
+                    {
+                      amount: amt,
+                      bank: {
+                        name: name.trim(),
+                        accountNumber: accountNumber.trim(),
+                        ifsc: ifsc.trim().toUpperCase(),
+                      },
+                    },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                  );
 
-            await axios.post(
-              `${API_BASE_URL}/withdrawals/request`,
-              {
-                amount: amt,
-                bank: {
-                  name: name.trim(),
-                  accountNumber: accountNumber.trim(),
-                  ifsc: ifsc.trim().toUpperCase(),
-                },
-              },
-              { headers: { Authorization: `Bearer ${token}` } }
-            );
+                  setWithdrawSuccess("Withdrawal request submitted for approval.");
+                  setWithdrawForm({
+                    amount: "",
+                    name: "",
+                    accountNumber: "",
+                    ifsc: "",
+                  });
 
-            setWithdrawSuccess("Withdrawal request submitted for approval.");
-            setWithdrawForm({
-              amount: "",
-              name: "",
-              accountNumber: "",
-              ifsc: "",
-            });
+                  await fetchUserInfo();
+                } catch (err) {
+                  setWithdrawError(
+                    err.response?.data?.message || "Failed to request withdrawal."
+                  );
+                } finally {
+                  setWithdrawLoading(false);
+                }
+              }}
+              className="p-4 space-y-4"
+            >
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+                  Amount (₹)
+                </label>
+                <input
+                  type="number"
+                  min="100"
+                  placeholder="Minimum ₹100"
+                  value={withdrawForm.amount}
+                  onChange={(e) =>
+                    setWithdrawForm({ ...withdrawForm, amount: e.target.value })
+                  }
+                  className={inputClass}
+                />
+              </div>
 
-            await fetchUserInfo(); // refresh wallet balance
-          } catch (err) {
-            setWithdrawError(
-              err.response?.data?.message || "Failed to request withdrawal."
-            );
-          } finally {
-            setWithdrawLoading(false);
-          }
-        }}
-        className="p-4 space-y-4"
-      >
-        {/* Amount */}
-        <div>
-          <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
-            Amount (₹)
-          </label>
-          <input
-            type="number"
-            min="100"
-            placeholder="Minimum ₹100"
-            value={withdrawForm.amount}
-            onChange={(e) =>
-              setWithdrawForm({ ...withdrawForm, amount: e.target.value })
-            }
-            className={inputClass}
-          />
-        </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+                  Account holder name
+                </label>
+                <input
+                  value={withdrawForm.name}
+                  onChange={(e) =>
+                    setWithdrawForm({ ...withdrawForm, name: e.target.value })
+                  }
+                  className={inputClass}
+                  placeholder="As per bank records"
+                />
+              </div>
 
-        {/* Account Holder */}
-        <div>
-          <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
-            Account holder name
-          </label>
-          <input
-            value={withdrawForm.name}
-            onChange={(e) =>
-              setWithdrawForm({ ...withdrawForm, name: e.target.value })
-            }
-            className={inputClass}
-            placeholder="As per bank records"
-          />
-        </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+                  Account number
+                </label>
+                <input
+                  value={withdrawForm.accountNumber}
+                  onChange={(e) =>
+                    setWithdrawForm({
+                      ...withdrawForm,
+                      accountNumber: e.target.value,
+                    })
+                  }
+                  className={inputClass}
+                  placeholder="e.g. 1234567890"
+                />
+              </div>
 
-        {/* Account Number */}
-        <div>
-          <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
-            Account number
-          </label>
-          <input
-            value={withdrawForm.accountNumber}
-            onChange={(e) =>
-              setWithdrawForm({
-                ...withdrawForm,
-                accountNumber: e.target.value,
-              })
-            }
-            className={inputClass}
-            placeholder="e.g. 1234567890"
-          />
-        </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+                  IFSC code
+                </label>
+                <input
+                  value={withdrawForm.ifsc}
+                  onChange={(e) =>
+                    setWithdrawForm({ ...withdrawForm, ifsc: e.target.value })
+                  }
+                  className={inputClass}
+                  placeholder="e.g. HDFC0001234"
+                />
+              </div>
 
-        {/* IFSC */}
-        <div>
-          <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
-            IFSC code
-          </label>
-          <input
-            value={withdrawForm.ifsc}
-            onChange={(e) =>
-              setWithdrawForm({ ...withdrawForm, ifsc: e.target.value })
-            }
-            className={inputClass}
-            placeholder="e.g. HDFC0001234"
-          />
-        </div>
+              {withdrawError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {withdrawError}
+                </div>
+              )}
 
-        {/* Errors / success */}
-        {withdrawError && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {withdrawError}
+              {withdrawSuccess && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  {withdrawSuccess}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <span className="text-xs text-neutral-600">
+                  Available: ₹{Number(walletBalance || 0).toFixed(2)}
+                </span>
+
+                <button
+                  type="submit"
+                  disabled={withdrawLoading}
+                  className="inline-flex items-center gap-2 rounded-xl bg-prim px-4 py-2.5 text-sm font-semibold text-neutral-900 shadow-sm hover:opacity-95 disabled:opacity-70"
+                >
+                  <FiSend className="h-4 w-4" />
+                  {withdrawLoading ? "Submitting..." : "Request withdrawal"}
+                </button>
+              </div>
+            </form>
           </div>
-        )}
-
-        {withdrawSuccess && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            {withdrawSuccess}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-xs text-neutral-600">
-            Available: ₹{Number(walletBalance || 0).toFixed(2)}
-          </span>
-
-          <button
-            type="submit"
-            disabled={withdrawLoading}
-            className="inline-flex items-center gap-2 rounded-xl bg-prim px-4 py-2.5 text-sm font-semibold text-neutral-900 shadow-sm hover:opacity-95 disabled:opacity-70"
-          >
-            <FiSend className="h-4 w-4" />
-            {withdrawLoading ? "Submitting..." : "Request withdrawal"}
-          </button>
         </div>
-      </form>
-    </div>
-  </div>
-)}
+      )}
 
+      {/* ✅ Transfer Modal */}
+      {showTransferModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-neutral-200 p-4">
+              <h2 className="text-sm font-semibold text-neutral-900">
+                Transfer wallet balance
+              </h2>
+              <button
+                onClick={closeTransferModal}
+                className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100"
+              >
+                <FiX className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Step indicator */}
+            <div className="px-4 pt-4">
+              <div className="flex items-center gap-2">
+                <Pill tone={transferStep === "details" ? "prim" : "neutral"}>
+                  1) Details
+                </Pill>
+                <Pill tone={transferStep === "otp" ? "prim" : "neutral"}>
+                  2) OTP
+                </Pill>
+              </div>
+            </div>
+
+            {transferStep === "details" ? (
+              <form onSubmit={submitTransferRequestOtp} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+                    Amount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Enter amount"
+                    value={transferForm.amount}
+                    onChange={(e) =>
+                      setTransferForm({ ...transferForm, amount: e.target.value })
+                    }
+                    className={inputClass}
+                  />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Available: ₹{Number(walletBalance || 0).toFixed(2)}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+                    Receiver (Email or Referral Code)
+                  </label>
+                  <input
+                    value={transferForm.receiver}
+                    onChange={(e) =>
+                      setTransferForm({ ...transferForm, receiver: e.target.value })
+                    }
+                    className={inputClass}
+                    placeholder="e.g. user@email.com or PPAB12CD34"
+                  />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    You can paste referral code with or without the PP prefix.
+                  </p>
+                </div>
+
+                {transferError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {transferError}
+                  </div>
+                )}
+                {transferSuccess && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    {transferSuccess}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={closeTransferModal}
+                    className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={transferLoading}
+                    className="inline-flex items-center gap-2 rounded-xl bg-prim px-4 py-2.5 text-sm font-semibold text-neutral-900 shadow-sm hover:opacity-95 disabled:opacity-70"
+                  >
+                    <FiSend className="h-4 w-4" />
+                    {transferLoading ? "Sending OTP..." : "Send OTP"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={submitTransferConfirmOtp} className="p-4 space-y-4">
+                {/* Preview */}
+                <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="text-xs text-neutral-600">Transfer summary</div>
+                  <div className="mt-1 text-sm font-semibold text-neutral-900">
+                    ₹{Number(transferPreview?.amount || transferForm.amount || 0).toFixed(2)}
+                  </div>
+                  {transferPreview?.receiver ? (
+                    <div className="mt-1 text-xs text-neutral-700">
+                      To:{" "}
+                      <span className="font-medium text-neutral-900">
+                        {transferPreview.receiver.name || "User"}
+                      </span>
+                      {transferPreview.receiver.email ? (
+                        <span className="text-neutral-600">
+                          {" "}
+                          ({transferPreview.receiver.email})
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-xs text-neutral-700">
+                      To: <span className="font-medium">{transferForm.receiver}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wider text-neutral-500 mb-1">
+                    OTP
+                  </label>
+                  <input
+                    value={transferForm.otp}
+                    onChange={(e) =>
+                      setTransferForm({ ...transferForm, otp: e.target.value })
+                    }
+                    className={inputClass}
+                    placeholder="Enter 6-digit OTP"
+                  />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    OTP is sent to your registered email.
+                  </p>
+                </div>
+
+                {transferError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {transferError}
+                  </div>
+                )}
+                {transferSuccess && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    {transferSuccess}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTransferError("");
+                      setTransferSuccess("");
+                      setTransferStep("details");
+                      setTransferForm({ ...transferForm, otp: "" });
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+                  >
+                    Back
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        // resend OTP by calling request again with same details
+                        setTransferError("");
+                        setTransferSuccess("");
+                        const token = sessionStorage.getItem("token");
+                        if (!token) return setTransferError("No auth token found.");
+
+                        const amt = Number(transferForm.amount);
+                        const receiver = String(transferForm.receiver || "").trim();
+                        if (!Number.isFinite(amt) || amt <= 0 || !receiver) {
+                          return setTransferError("Enter amount and receiver first.");
+                        }
+
+                        try {
+                          setTransferLoading(true);
+                          const res = await axios.post(
+                            `${API_BASE_URL}/wallet/transfer/request`,
+                            { amount: amt, receiver },
+                            { headers: { Authorization: `Bearer ${token}` } }
+                          );
+                          setTransferPreview(res.data?.transfer || null);
+                          setTransferSuccess("OTP resent to your email.");
+                        } catch (err) {
+                          setTransferError(
+                            err.response?.data?.message || "Failed to resend OTP."
+                          );
+                        } finally {
+                          setTransferLoading(false);
+                        }
+                      }}
+                      disabled={transferLoading}
+                      className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-50 disabled:opacity-70"
+                    >
+                      {transferLoading ? "..." : "Resend OTP"}
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={transferLoading}
+                      className="inline-flex items-center gap-2 rounded-xl bg-prim px-4 py-2.5 text-sm font-semibold text-neutral-900 shadow-sm hover:opacity-95 disabled:opacity-70"
+                    >
+                      <FiSend className="h-4 w-4" />
+                      {transferLoading ? "Transferring..." : "Confirm transfer"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Optional close on success */}
+                {transferSuccess && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={closeTransferModal}
+                      className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 };

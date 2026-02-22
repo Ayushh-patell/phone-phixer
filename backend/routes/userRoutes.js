@@ -103,7 +103,6 @@ router.post("/register", async (req, res) => {
         }
 
         // Find the referrer by referralCode
-        // (If you store referralCode in a normalized form, normalize formattedCode similarly.)
         referrer = await User.findOne({ referralCode: formattedCode });
         if (!referrer) {
           return res.status(400).json({ message: "Invalid referral code" });
@@ -576,7 +575,7 @@ router.post("/verify-token", async (req, res) => {
       return res.status(401).json({ valid: false, message: "Invalid token" });
     }
 
-    const user = await User.findById(decoded.id).select("_id name email admin role verified star Totalrsp aadhaarVerified referralActive");
+    const user = await User.findById(decoded.id).select("_id name email admin role verified star Totalrsp aadhaarVerified referralUsed referralActive");
     if (!user) {
       return res.status(404).json({ valid: false, message: "User not found" });
     }
@@ -595,6 +594,7 @@ const needed = (user.referralActive && !user.aadhaarVerified)
         email: user.email,
         admin: user.role === "admin",
         star:userStars,
+        referralUsed:user.referralUsed,
         rsp:user.Totalrsp,
         verified: user.verified,
       },

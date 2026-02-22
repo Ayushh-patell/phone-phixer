@@ -41,7 +41,7 @@ function MetricCard({ label, value, sub, Icon, highlight = false }) {
 
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] uppercase tracking-wider text-black font-semibold">
+          <div className="text-base uppercase tracking-wider text-black font-semibold">
             {label}
           </div>
           <div className="mt-1 text-2xl font-semibold text-neutral-900">
@@ -54,7 +54,7 @@ function MetricCard({ label, value, sub, Icon, highlight = false }) {
         </div>
       </div>
 
-      {sub ? <p className="mt-2 text-xs text-neutral-600">{sub}</p> : null}
+      {sub ? <p className="mt-2 text-sm text-neutral-600">{sub}</p> : null}
     </div>
   );
 }

@@ -62,7 +62,7 @@ const AboutPhonePhixer = () => {
                   </Link>
 
                   <Link
-                    to="/"
+                    to="#contactHomeForm"
                     className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
                   >
                     Talk to Support

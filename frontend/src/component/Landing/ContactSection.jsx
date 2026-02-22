@@ -7,7 +7,7 @@ const ContactSection = () => {
         <div className="relative grid w-full gap-10 lg:grid-cols-2 lg:items-center">
           {/* LEFT */}
           <div className="w-full">
-            <h2 className="text-5xl font-extrabold tracking-tight text-primDark md:text-6xl">
+            <h2 id="contactHomeForm" className="text-5xl font-extrabold tracking-tight text-primDark md:text-6xl">
               Contact Us
             </h2>
 
@@ -51,7 +51,7 @@ const ContactSection = () => {
 
                 <div className="w-full">
                   <div className="text-2xl font-extrabold text-primDark">Email</div>
-                  <div className="mt-1 text-base text-slate-700">support@phonephixer.in</div>
+                  <div className="mt-1 text-base text-slate-700">phonephixerr@gmail.com</div>
                 </div>
               </div>
 
@@ -68,7 +68,7 @@ const ContactSection = () => {
 
                 <div className="w-full">
                   <div className="text-2xl font-extrabold text-primDark">Phone</div>
-                  <div className="mt-1 text-base text-slate-700">+91 XXXXX XXXXX</div>
+                  <div className="mt-1 text-base text-slate-700"><a href="tel:7737178264">7737178264</a></div>
                 </div>
               </div>
 
@@ -87,7 +87,7 @@ const ContactSection = () => {
                 <div className="w-full">
                   <div className="text-2xl font-extrabold text-primDark">Location</div>
                   <div className="mt-1 text-base text-slate-700">
-                    Jaipur, Rajasthan (Doorstep pickup available)
+                    139, Avadhpuri - II, Near Mahesh Nagar Phatak, Jaipur - 302015
                   </div>
                 </div>
               </div>

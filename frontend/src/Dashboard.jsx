@@ -55,6 +55,9 @@ function Dashboard() {
 
         if (data.valid) {
           setUser(data.user || null);
+          if(!data.user.referralUsed) {
+            setActiveTab("services")
+          }
         } else {
           localStorage.removeItem("token");
           localStorage.removeItem("user");
@@ -90,6 +93,8 @@ function Dashboard() {
     if (activeTab === "withdrawal") return "Withdrawal";
     return "Dashboard";
   }, [activeTab]);
+
+  const showAlltabs = user?.referralUsed || user?.admin;
 
   const NavButton = ({ id, label, Icon }) => {
     const active = activeTab === id;
@@ -177,6 +182,8 @@ function Dashboard() {
                 Menu
               </div>
               <div className="space-y-2">
+              {showAlltabs ?
+              <>
                 <NavButton id="overview" label="Overview" Icon={FiGrid} />
                 <NavButton id="services" label="Services" Icon={FiTool} />
                 <NavButton id="purchases" label="Purchases" Icon={FiShoppingBag} />
@@ -184,6 +191,14 @@ function Dashboard() {
                 <NavButton id="stars" label="Star" Icon={FiAward} />
                 <NavButton id="request" label="Request" Icon={FiList} />
                 <NavButton id="withdrawal" label="Withdrawal" Icon={FiCreditCard} />
+              </>
+              :
+              <>
+                <NavButton id="services" label="Services" Icon={FiTool} />
+                <NavButton id="purchases" label="Purchases" Icon={FiShoppingBag} />
+              </>
+              }
+
 
                 {user.admin &&
                   <NavButton id="settings" label="Settings" Icon={FiSettings} />
@@ -229,6 +244,8 @@ function Dashboard() {
 
           {/* Nav */}
           <nav className="flex-1 px-3 py-4 space-y-2">
+          {showAlltabs ?
+          <>
             <NavButton id="overview" label="Overview" Icon={FiGrid} />
             <NavButton id="services" label="Services" Icon={FiTool} />
             <NavButton id="purchases" label="Purchases" Icon={FiShoppingBag} />
@@ -236,6 +253,15 @@ function Dashboard() {
             <NavButton id="stars" label="Star" Icon={FiAward} />
             <NavButton id="request" label="Request" Icon={FiList} />
             <NavButton id="withdrawal" label="Withdrawal" Icon={FiCreditCard} />
+          </>
+          :
+          <>
+            <NavButton id="services" label="Services" Icon={FiTool} />
+            <NavButton id="purchases" label="Purchases" Icon={FiShoppingBag} />
+
+          </>
+          }
+
             {user.admin &&
             <NavButton id="settings" label="Settings" Icon={FiSettings} />
             }

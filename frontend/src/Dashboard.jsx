@@ -20,11 +20,13 @@ import {
   FiSettings,
   FiList,
   FiCreditCard,
+  FiUsers,
 } from "react-icons/fi";
 import StarEligibilitySection from "./component/StarEligibility";
 import SettingsSection from "./component/SettingsSection";
 import RequestSection from "./component/RequestSection";
 import WithdrawalRequestSection from "./component/WithdrawalRequestSection";
+import AdminUsers from "./component/AdminUsersSection";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -201,7 +203,11 @@ function Dashboard() {
 
 
                 {user.admin &&
+                <>
+
                   <NavButton id="settings" label="Settings" Icon={FiSettings} />
+                  <NavButton id="users" label="Users" Icon={FiUsers} />
+                </>
                 }
               </div>
 
@@ -263,7 +269,11 @@ function Dashboard() {
           }
 
             {user.admin &&
+            <>
+
             <NavButton id="settings" label="Settings" Icon={FiSettings} />
+            <NavButton id="users" label="Users" Icon={FiUsers} />
+            </>
             }
           </nav>
 
@@ -317,6 +327,8 @@ function Dashboard() {
                         ? "Request Panel"
                         : activeTab === "withdrawal"
                         ? "Withdrawal Request Panel"
+                        : activeTab === "users"
+                        ? "Users details Panel"
                         : "Your star level and benefits."}
                     </div>
                   </div>
@@ -357,6 +369,7 @@ function Dashboard() {
             {activeTab === "settings" && <SettingsSection />}
             {activeTab === "request" && <RequestSection user={user} />}
             {activeTab === "withdrawal" && <WithdrawalRequestSection user={user} />}
+            {activeTab === "users" && <AdminUsers user={user} />}
           </main>
         </div>
       </div>

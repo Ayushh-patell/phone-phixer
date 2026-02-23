@@ -1138,4 +1138,194 @@ router.post("/join-referral-program", protect, async (req, res) => {
   }
 });
 
+
+
+// GET /admin/users
+router.get("/admin/users", protect, async (req, res) => {
+  try {
+    // Admin check
+    if (!req.user.isAdmin) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    // OPTIONAL: pagination
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Fetch users (basic fields only)
+    const users = await User.find()
+      .select(
+        [
+          "name",
+          "email",
+          "role",
+          "referralCode",
+          "referralActive",
+          "createdAt",
+          "star",
+        ].join(" ")
+      )
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await User.countDocuments();
+
+    return res.json({
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      users,
+    });
+  } catch (err) {
+    console.error("Error fetching users:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// GET /user 
+router.get("/admin/user", protect, async (req, res) => {
+
+  try {
+    // Authorization rule requested:
+  if (!req.user.isAdmin) {
+    return res.status(403).json({ message: "Not authorized" });
+  }
+    const { treeOwnerId } = req.query;
+
+    const user = await User.findById(treeOwnerId)
+      .populate("referralUsed", "name email referralCode")
+      .select(
+        [
+          "name",
+          "email",
+          "role",
+          "selfVolume",
+          "leftVolume",
+          "rightVolume",
+          "walletBalance",
+          "totalEarnings",
+          "referralCode",
+          "referralActive",
+          "createdAt",
+          "star",
+          "referralUsed",
+          "deviceModel",
+          "deviceBrand",
+          "deviceImei",
+          "rsp",
+          "Totalrsp",
+          "checksClaimed",
+          "placementCache",
+        ].join(" ")
+      );
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const levels = await getStarLevels();
+    const userStars = levels.find((item) => item.lvl === user.star) || null;
+
+    // NEW: Placement inside sponsor's tree comes from TreeNode (not User fields)
+    // This answers: "Where am I placed in my sponsor's binary tree?"
+    let placement = null;
+
+    const sponsorId =
+      user.referralUsed && typeof user.referralUsed === "object"
+        ? user.referralUsed._id
+        : user.referralUsed;
+
+    if (sponsorId) {
+      const node = await TreeNode.findOne({
+        treeOwner: sponsorId,
+        user: user._id,
+      })
+        .populate("parentUser", "name email referralCode")
+        .select("parentUser side level at_hotposition");
+
+      if (node) {
+        placement = {
+          treeOwner: sponsorId,
+          parentUser: node.parentUser
+            ? {
+                id: node.parentUser._id,
+                name: node.parentUser.name,
+                email: node.parentUser.email,
+                referralCode: node.parentUser.referralCode || null,
+              }
+            : null,
+          side: node.side, // "L" | "R" (or "root" if you ever query root)
+          level: node.level,
+          at_hotposition: node.at_hotposition || false,
+        };
+      } else if (user.placementCache?.treeOwner) {
+        // Optional fallback if you keep placementCache
+        placement = {
+          treeOwner: user.placementCache.treeOwner,
+          parentUser: user.placementCache.parentUser,
+          side: user.placementCache.side,
+          level: user.placementCache.level,
+          at_hotposition: false,
+        };
+      }
+    }
+
+    return res.json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+
+      selfVolume: user.selfVolume || 0,
+      leftVolume: user.leftVolume || 0,
+      rightVolume: user.rightVolume || 0,
+
+      walletBalance: user.walletBalance || 0,
+      totalEarnings: user.totalEarnings || 0,
+
+      referralCode: user.referralCode || null,
+      referralActive: user.referralActive || false,
+
+      deviceBrand: user.deviceBrand,
+      deviceModel: user.deviceModel,
+      deviceImei: user.deviceImei,
+
+      rsp: user.rsp || 0,
+      Totalrsp: user.Totalrsp || 0,
+
+      createdAt: user.createdAt,
+
+      // Sponsor (business relationship)
+      referralUsed: user.referralUsed
+        ? {
+            id: user.referralUsed._id,
+            name: user.referralUsed.name,
+            email: user.referralUsed.email,
+            referralCode: user.referralUsed.referralCode || null,
+          }
+        : null,
+
+      // NEW: placement (tree structure relationship, scoped to sponsor's tree)
+      placement, // { treeOwner, parentUser, side, level, at_hotposition } or null
+
+      // keep your existing fields
+      star: user.star || 1,
+      starInfo: userStars,
+
+      checksClaimed: user.checksClaimed || 0,
+
+      // If you still want the old response key name:
+      // at_hotposition is no longer global on User, so we expose it from placement
+      at_hotposition: placement?.at_hotposition || false,
+    });
+  } catch (err) {
+    console.error("Error fetching user info:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+
 export default router;

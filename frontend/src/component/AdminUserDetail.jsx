@@ -27,7 +27,7 @@ const AdminUserDetail = ({ userId }) => {
 
         // 🔹 fetch user details
         const userRes = await axios.get(
-          `${API_BASE_URL}/admin/user`,
+          `${API_BASE_URL}users/admin/user`,
           {
             headers,
             params: { treeOwnerId: userId },

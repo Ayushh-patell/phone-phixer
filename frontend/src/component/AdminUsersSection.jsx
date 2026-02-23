@@ -24,7 +24,7 @@ const AdminUsers = () => {
 
       const token = sessionStorage.getItem("token");
 
-      const res = await axios.get(`${API_BASE_URL}/admin/users`, {
+      const res = await axios.get(`${API_BASE_URL}users/admin/users`, {
         params: { page: pageNum, search: searchTerm },
         headers: { Authorization: `Bearer ${token}` },
       });

@@ -18,6 +18,7 @@ import UserMetricEvent from "../models/UserMetricEvent.js";
 import UserMonthlyCheckStats from "../models/UserMonthlyCheckStats.js";
 
 import { getSettingValue } from "./universalSettingsRoutes.js";
+import { generateInvoicePDF } from "../lib/invoiceGenerator.js";
 
 function monthStartUTC(date = new Date()) {
   return new Date(
@@ -51,7 +52,7 @@ const RAZORPAY_MIN_AMOUNT = 1;
  */
 router.post("/create-order", protect, async (req, res) => {
   try {
-    const { serviceId, amount, tax } = req.body || {};
+    const { serviceId, amount } = req.body || {};
 
     if (!serviceId) {
       return res.status(400).json({ message: "serviceId is required" });
@@ -81,20 +82,18 @@ router.post("/create-order", protect, async (req, res) => {
         message: `Amount must be at least ₹${RAZORPAY_MIN_AMOUNT}`,
       });
     }
+
     if (amountInRupees > servicePrice) {
       return res
         .status(400)
         .json({ message: "Amount cannot exceed service price" });
     }
 
-    const validTax = (amountInRupees * 18) /100;
-    if (validTax !== tax) {
-      return res
-        .status(400)
-        .json({ message: "Invalid Tax amount" });
-    }
+    // ✅ SERVER-SIDE GST (never trust frontend)
+    const validTax = Number(((amountInRupees * 18) / 100).toFixed(2));
+    const totalAmount = amountInRupees + validTax;
 
-    const amountInPaise = Math.round((amountInRupees + validTax) * 100);
+    const amountInPaise = Math.round(totalAmount * 100);
 
     const shortServiceId = service._id.toString().slice(-8);
     const shortTimestamp = Date.now().toString().slice(-6);
@@ -107,13 +106,18 @@ router.post("/create-order", protect, async (req, res) => {
 
     const order = await razorpay.orders.create(options);
 
-    const userDoc = await User.findById(req.user.id).select("name email phone");
+    const userDoc = await User.findById(req.user.id).select(
+      "name email phone"
+    );
 
     return res.json({
       orderId: order.id,
-      amount: order.amount + validTax,
+      amount: order.amount, // ✅ already includes tax
       currency: order.currency,
       serviceId: service._id,
+      tax: validTax,
+      baseAmount: amountInRupees,
+      totalAmount,
       user: userDoc
         ? {
             name: userDoc.name,
@@ -193,11 +197,15 @@ router.post("/verify", protect, async (req, res) => {
       return res.status(400).json({ message: "Invalid service price" });
     }
 
-    // Wallet part (optional)
+    // -----------------------------
+    // Wallet handling
+    // -----------------------------
     let walletToDeduct = 0;
-    if (useWallet && typeof walletUsed !== "undefined" && walletUsed !== null) {
+
+    if (useWallet && walletUsed != null) {
       const walletUsedNum = Number(walletUsed);
-      if (Number.isNaN(walletUsedNum) || walletUsedNum < 0) {
+
+      if (!Number.isFinite(walletUsedNum) || walletUsedNum < 0) {
         return res
           .status(400)
           .json({ message: "walletUsed must be a non-negative number" });
@@ -224,20 +232,36 @@ router.post("/verify", protect, async (req, res) => {
       return res.status(400).json({ message: "Invalid service UV" });
     }
 
-    // Compute payment breakdown (INR)
-    const paidViaWallet = walletToDeduct; // INR
-    const paidViaRazorpay = Math.max(0, servicePrice - walletToDeduct); // INR
+    // -----------------------------
+    // Payment math (FIXED)
+    // -----------------------------
+    const basePrice = servicePrice;
+
+    const paidViaWalletBase = walletToDeduct;
+    const paidViaRazorpayBase = Math.max(0, basePrice - walletToDeduct);
+
+    const taxAmount = Number(((basePrice * 18) / 100).toFixed(2));
+
+    // ✅ Wallet pays BASE only
+    const paidViaWallet = paidViaWalletBase;
+
+    // ✅ Razorpay pays remaining + tax
+    const paidViaRazorpay = paidViaRazorpayBase + taxAmount;
+
+    const totalPaid = basePrice + taxAmount;
 
     const paymentMethod =
-      paidViaWallet > 0 && paidViaRazorpay > 0
+      paidViaWalletBase > 0 && paidViaRazorpayBase > 0
         ? "razorpay+wallet"
-        : paidViaWallet > 0
+        : paidViaWalletBase > 0
         ? "wallet"
         : "razorpay";
 
     let purchase = null;
 
-    // If renew: update the previous purchase
+    // -----------------------------
+    // Renewal vs New
+    // -----------------------------
     if (isRenew && previousPurchaseId) {
       purchase = await Purchase.findOneAndUpdate(
         {
@@ -251,13 +275,12 @@ router.post("/verify", protect, async (req, res) => {
             deviceBrand,
             deviceModel,
             deviceImei,
-
             paymentMethod,
             paidViaWallet,
             paidViaRazorpay,
-
-            razorpayOrderId: paidViaRazorpay > 0 ? razorpay_order_id : null,
-            razorpayPaymentId: paidViaRazorpay > 0 ? razorpay_payment_id : null,
+            razorpayOrderId: paidViaRazorpayBase > 0 ? razorpay_order_id : null,
+            razorpayPaymentId:
+              paidViaRazorpayBase > 0 ? razorpay_payment_id : null,
           },
         },
         { new: true }
@@ -269,28 +292,27 @@ router.post("/verify", protect, async (req, res) => {
         });
       }
     } else {
-      // New purchase
       purchase = await Purchase.create({
         userId: user._id,
+        amountPaid: totalPaid,
         serviceId: service._id,
-        amountPaid: servicePrice,
         uvEarned: uv,
         status: "completed",
-
         paymentMethod,
         paidViaWallet,
         paidViaRazorpay,
-
-        razorpayOrderId: paidViaRazorpay > 0 ? razorpay_order_id : null,
-        razorpayPaymentId: paidViaRazorpay > 0 ? razorpay_payment_id : null,
-
+        razorpayOrderId: paidViaRazorpayBase > 0 ? razorpay_order_id : null,
+        razorpayPaymentId:
+          paidViaRazorpayBase > 0 ? razorpay_payment_id : null,
         deviceBrand,
         deviceModel,
         deviceImei,
       });
     }
 
-    // Deduct wallet if used
+    // -----------------------------
+    // Wallet deduction
+    // -----------------------------
     if (walletToDeduct > 0) {
       user.walletBalance = Math.max(
         0,
@@ -301,10 +323,11 @@ router.post("/verify", protect, async (req, res) => {
     // Update self volume
     user.selfVolume = (user.selfVolume || 0) + uv;
 
-    // ---------------------------
-    // RSP on renew (single source of truth)
-    // ---------------------------
+    // -----------------------------
+    // RSP on renew
+    // -----------------------------
     let rspAdded = 0;
+
     if (isRenew) {
       const rspPerUvSetting = await getSettingValue("rsp_to_uv", 120);
       const rspPerUv = Number(rspPerUvSetting);
@@ -314,7 +337,6 @@ router.post("/verify", protect, async (req, res) => {
       if (safeRspPerUv > 0 && uv > 0) {
         rspAdded = uv * safeRspPerUv;
 
-        // 5-level rule (includes current user). Only eligible users get credited.
         await updateReferralRSP(user._id, rspAdded);
 
         const month = monthStartUTC(new Date());
@@ -336,25 +358,32 @@ router.post("/verify", protect, async (req, res) => {
             serviceId: service._id,
             purchaseId: purchase?._id,
             previousPurchaseId: previousPurchaseId || undefined,
-            razorpayOrderId: paidViaRazorpay > 0 ? razorpay_order_id : undefined,
+            razorpayOrderId:
+              paidViaRazorpayBase > 0 ? razorpay_order_id : undefined,
             razorpayPaymentId:
-              paidViaRazorpay > 0 ? razorpay_payment_id : undefined,
+              paidViaRazorpayBase > 0 ? razorpay_payment_id : undefined,
           },
           meta: {
             method: paymentMethod,
             isRenew: true,
             originalPrice: originalPrice ?? servicePrice,
-            walletUsed: paidViaWallet || 0,
-            paidViaRazorpay: paidViaRazorpay || 0,
+            walletUsed: paidViaWallet,
+            paidViaRazorpay,
           },
         });
       }
     }
 
-    // Activation logic (referralActive unrelated to sponsor usage)
-    const ACTIVATION_THRESHOLD = await getSettingValue("referralActive_limit", 5);
+    // -----------------------------
+    // Activation logic
+    // -----------------------------
+    const ACTIVATION_THRESHOLD = await getSettingValue(
+      "referralActive_limit",
+      5
+    );
 
     let activatedNow = false;
+
     if ((user.selfVolume || 0) >= ACTIVATION_THRESHOLD && !user.referralActive) {
       user.referralActive = true;
       activatedNow = true;
@@ -366,8 +395,27 @@ router.post("/verify", protect, async (req, res) => {
 
     await user.save();
 
-    // If user just activated, clear hotposition flag in the sponsor tree node (if any)
-    // (at_hotposition is now stored per-tree in TreeNode, not on User)
+    // -----------------------------
+    // Invoice (FIXED syntax)
+    // -----------------------------
+    try {
+      const invoicePath = await generateInvoicePDF({
+        purchase,
+        user,
+        tax: taxAmount,
+        service,
+      });
+
+      await sendInvoiceEmail({
+        to: user.email,
+        name: user.name,
+        invoicePath,
+      });
+    } catch (err) {
+      console.error("Invoice generation/email failed:", err);
+    }
+
+    // Clear hotposition
     if (activatedNow && user.referralUsed) {
       await TreeNode.updateOne(
         { treeOwner: user.referralUsed, user: user._id },
@@ -375,8 +423,7 @@ router.post("/verify", protect, async (req, res) => {
       );
     }
 
-    // Propagate UV volumes up the placement tree (TreeNode-based)
-    // Function will no-op if the user is not placed / no sponsor tree exists.
+    // Propagate UV
     if (uv > 0) {
       await updateReferralVolumes(user._id, uv);
     }
@@ -387,6 +434,7 @@ router.post("/verify", protect, async (req, res) => {
         : "Payment verified & purchase created",
       purchase,
       walletDeducted: paidViaWallet,
+      taxAmount,
       paidViaRazorpay,
       paymentMethod,
       originalPrice: originalPrice ?? servicePrice,
@@ -414,7 +462,6 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       previousPurchaseId,
     } = req.body || {};
 
-    
     if (!serviceId || typeof amount === "undefined") {
       return res
         .status(400)
@@ -422,12 +469,12 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
     }
 
     if (!deviceBrand || !deviceModel || !deviceImei) {
-      return res
-        .status(400)
-        .json({ message: "Device brand, model and IMEI are required" });
-      }
-      
-      const service = await Service.findById(serviceId);
+      return res.status(400).json({
+        message: "Device brand, model and IMEI are required",
+      });
+    }
+
+    const service = await Service.findById(serviceId);
     if (!service || !service.isActive) {
       return res.status(404).json({ message: "Service not found" });
     }
@@ -439,21 +486,25 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
     if (!Number.isFinite(servicePrice) || servicePrice <= 0) {
       return res.status(400).json({ message: "Invalid service price" });
     }
-    
+
     const amountNum = Number(amount);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      return res.status(400).json({ message: "amount must be a positive number" });
+      return res
+        .status(400)
+        .json({ message: "amount must be a positive number" });
     }
-    const validTax = (amountNum * 18) /100;
 
-    if(validTax !== tax) {
+    // ✅ safer GST calculation
+    const validTax = Number(((amountNum * 18) / 100).toFixed(2));
+    const clientTax = Number(tax);
+
+    if (!Number.isFinite(clientTax) || Math.abs(validTax - clientTax) > 0.01) {
       return res.status(400).json({
-        message:
-          "Invalid Tax value",
+        message: "Invalid Tax value",
       });
     }
 
-    // This endpoint is for full wallet purchase only
+    // Full wallet purchase only
     if (amountNum !== servicePrice) {
       return res.status(400).json({
         message:
@@ -461,15 +512,17 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       });
     }
 
-    const amountWithTax = amountNum + validTax;
-
+    const amountWithTax = Number((amountNum + validTax).toFixed(2));
 
     if ((user.walletBalance || 0) < amountWithTax) {
       return res.status(400).json({ message: "Insufficient wallet balance" });
     }
 
-    // Deduct wallet
-    user.walletBalance = Math.max(0, (user.walletBalance || 0) - amountWithTax);
+    // ✅ Deduct wallet
+    user.walletBalance = Math.max(
+      0,
+      (user.walletBalance || 0) - amountWithTax
+    );
 
     const uv = Number(service.uv || 0);
     if (!Number.isFinite(uv) || uv < 0) {
@@ -491,7 +544,6 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
             deviceBrand,
             deviceModel,
             deviceImei,
-
             paymentMethod: "wallet",
             paidViaWallet: amountWithTax,
             paidViaRazorpay: 0,
@@ -511,16 +563,14 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       purchase = await Purchase.create({
         userId: user._id,
         serviceId: service._id,
-        amountPaid: servicePrice,
+        amountPaid: amountWithTax, // ✅ FIXED (was servicePrice)
         uvEarned: uv,
         status: "completed",
-
         paymentMethod: "wallet",
-        paidViaWallet: servicePrice,
+        paidViaWallet: amountWithTax, // ✅ FIXED
         paidViaRazorpay: 0,
         razorpayOrderId: null,
         razorpayPaymentId: null,
-
         deviceBrand,
         deviceModel,
         deviceImei,
@@ -531,9 +581,10 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
     user.selfVolume = (user.selfVolume || 0) + uv;
 
     // ---------------------------
-    // RSP on renew (single source of truth)
+    // RSP on renew
     // ---------------------------
     let rspAdded = 0;
+
     if (isRenew) {
       const rspPerUvSetting = await getSettingValue("rsp_to_uv", 120);
       const rspPerUv = Number(rspPerUvSetting);
@@ -568,16 +619,20 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
           meta: {
             method: "wallet",
             isRenew: true,
-            paidInr: amountNum,
+            paidInr: amountWithTax,
           },
         });
       }
     }
 
     // Activation logic
-    const ACTIVATION_THRESHOLD = await getSettingValue("referralActive_limit", 5);
+    const ACTIVATION_THRESHOLD = await getSettingValue(
+      "referralActive_limit",
+      5
+    );
 
     let activatedNow = false;
+
     if ((user.selfVolume || 0) >= ACTIVATION_THRESHOLD && !user.referralActive) {
       user.referralActive = true;
       activatedNow = true;
@@ -589,7 +644,7 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
 
     await user.save();
 
-    // Clear hotposition in sponsor-tree node if activated now
+    // Clear hotposition
     if (activatedNow && user.referralUsed) {
       await TreeNode.updateOne(
         { treeOwner: user.referralUsed, user: user._id },
@@ -597,9 +652,29 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       );
     }
 
-    // Propagate UV volumes up the placement tree (TreeNode-based)
+    // Propagate UV
     if (uv > 0) {
       await updateReferralVolumes(user._id, uv);
+    }
+
+    // -----------------------------
+    // Invoice (FIXED syntax)
+    // -----------------------------
+    try {
+      const invoicePath = await generateInvoicePDF({
+        purchase,
+        user,
+        tax: taxAmount,
+        service,
+      });
+
+      await sendInvoiceEmail({
+        to: user.email,
+        name: user.name,
+        invoicePath,
+      });
+    } catch (err) {
+      console.error("Invoice generation/email failed:", err);
     }
 
     return res.json({
@@ -609,8 +684,9 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       purchase,
       walletRemaining: user.walletBalance,
       paymentMethod: "wallet",
-      walletDeducted: servicePrice,
+      walletDeducted: amountWithTax, // ✅ FIXED
       paidViaRazorpay: 0,
+      taxAmount: validTax,
       rspAdded,
     });
   } catch (err) {

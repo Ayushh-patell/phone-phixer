@@ -160,7 +160,7 @@ const ServicesSection = () => {
             authConfig()
           );
 
-          alert("Payment successful.");
+          alert("Payment successful. Invoice send to mail");
           fetchWalletBalance();
         } catch (err) {
           console.error(err);

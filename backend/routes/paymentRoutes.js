@@ -19,6 +19,7 @@ import UserMonthlyCheckStats from "../models/UserMonthlyCheckStats.js";
 
 import { getSettingValue } from "./universalSettingsRoutes.js";
 import { generateInvoicePDF } from "../lib/invoiceGenerator.js";
+import { sendInvoiceEmail } from "../lib/emailSender.js";
 
 function monthStartUTC(date = new Date()) {
   return new Date(

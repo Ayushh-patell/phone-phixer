@@ -16,6 +16,10 @@ pnpm-debug.log*
 logs
 *.log
 
+.env
+uploads
+/uploads
+/uploads/*
 # --- Build outputs ---
 # Frontend (Vite / React)
 frontend/dist/
@@ -24,6 +28,7 @@ frontend/.vite/
 # Backend (Node / TS builds – tweak if your output dir is different)
 backend/dist/
 backend/build/
+backend/uploads
 
 # --- Editor / OS cruft ---
 .DS_Store

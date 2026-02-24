@@ -485,20 +485,22 @@ router.post("/login", async (req, res) => {
     let { email, password } = req.body;
 
     // Check required fields
-    if (!email || !password) {
-      return res.status(400).json({ message: "Referral and password are required" });
+if (!email || !password) {
+      return res.status(400).json({ message: "Email/Referral and password are required" });
     }
 
-    email = String(email).trim();
+    // Normalize input: trim whitespace and convert to lowercase
+    const inputIdentifier = String(email).trim().toLowerCase();
 
-    // 1) Try normal email login
-    const userByEmail = await User.findOne({ email });
+    // 1) Try normal email login (ensuring the search is against the normalized input)
+    const userByEmail = await User.findOne({ email: inputIdentifier });
 
     // 2) Also allow "login by referral code" using the same input field
-    // If it starts with "pp" (any case), strip it
-    const formattedCode = email.toLowerCase().startsWith("pp")
-      ? email.slice(2)
-      : email;
+    // If it starts with "pp", strip it. Since inputIdentifier is already lowercase, 
+    // we just check for "pp".
+    const formattedCode = inputIdentifier.startsWith("pp")
+      ? inputIdentifier.slice(2)
+      : inputIdentifier;
 
     const userByReferral = await User.findOne({ referralCode: formattedCode });
 

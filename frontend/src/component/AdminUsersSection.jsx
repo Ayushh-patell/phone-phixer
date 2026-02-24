@@ -24,7 +24,7 @@ const AdminUsers = () => {
 
       const token = sessionStorage.getItem("token");
 
-      const res = await axios.get(`${API_BASE_URL}users/admin/users`, {
+      const res = await axios.get(`${API_BASE_URL}/users/admin/users`, {
         params: { page: pageNum, search: searchTerm },
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -57,9 +57,7 @@ const AdminUsers = () => {
           <div className="text-sm text-neutral-500">Loading users…</div>
         )}
 
-        {error && (
-          <div className="text-sm text-red-600">{error}</div>
-        )}
+        {error && <div className="text-sm text-red-600">{error}</div>}
 
         {!loading && users.length === 0 && (
           <div className="text-sm text-neutral-500">No users found.</div>
@@ -72,7 +70,12 @@ const AdminUsers = () => {
             <button
               key={id}
               onClick={() => handleUserClick(id)}
-              className="w-full text-left border p-3 rounded-lg hover:bg-neutral-50"
+              className={[
+                "w-full text-left border p-3 rounded-lg hover:bg-neutral-50",
+                "relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition",
+                "hover:shadow-md",
+                "border-t-4 border-t-prim",
+              ].join(" ")}
             >
               <div className="font-semibold">{u.name}</div>
               <div className="text-xs text-neutral-500">{u.email}</div>

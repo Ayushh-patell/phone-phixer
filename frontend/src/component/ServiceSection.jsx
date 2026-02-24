@@ -106,6 +106,7 @@ const ServicesSection = () => {
   const startRazorpayPayment = async ({
     service,
     payAmountInRupees,
+    tax,
     extraOrderPayload = {},
     extraVerifyPayload = {},
   }) => {
@@ -119,6 +120,7 @@ const ServicesSection = () => {
       `${API_BASE_URL}/payments/create-order`,
       {
         amount: payAmountInRupees, // backend should multiply by 100
+        tax,
         serviceId: service._id,
         ...extraOrderPayload,
       },
@@ -185,6 +187,7 @@ const ServicesSection = () => {
       setError("");
 
       const price = Number(service.price || 0);
+      
 
       if (price <= 0) {
         setError("Invalid service price.");
@@ -196,10 +199,13 @@ const ServicesSection = () => {
         return;
       }
 
+      const tax = (price * 18) / 100;
+
       if (!useWallet) {
         await startRazorpayPayment({
           service,
           payAmountInRupees: price,
+          tax,
           extraVerifyPayload: { deviceBrand, deviceModel, deviceImei },
         });
         return;
@@ -215,6 +221,7 @@ const ServicesSection = () => {
             {
               serviceId: service._id,
               amount: price,
+              tax,
               deviceBrand,
               deviceModel,
               deviceImei,
@@ -244,6 +251,7 @@ const ServicesSection = () => {
       await startRazorpayPayment({
         service,
         payAmountInRupees: remainingPrice,
+        tax,
         extraOrderPayload: {
           useWallet: true,
           walletToUse,
@@ -464,7 +472,7 @@ const ServicesSection = () => {
                   ) : (
                     <>
                       <FiCheckCircle className="h-4.5 w-4.5" />
-                      Buy for ₹{Number(service.price || 0).toFixed(0)}
+                      Buy for ₹{Number(service.price || 0).toFixed(0)} <span className=" text-xs text-neutral-600">+18% GST</span>
                     </>
                   )}
                 </button>

@@ -39,6 +39,105 @@ const razorpay = new Razorpay({
 // ------------------------------------------------------------
 // POST /api/payments/verify
 // ------------------------------------------------------------
+
+
+// Minimum Razorpay amount in INR (must match frontend logic)
+const RAZORPAY_MIN_AMOUNT = 1;
+
+/**
+ * @route   POST /api/payments/create-order
+ * @desc    Create Razorpay order for a service
+ * @access  Private (logged-in user)
+ */
+router.post("/create-order", protect, async (req, res) => {
+  try {
+    const { serviceId, amount, tax } = req.body || {};
+
+    if (!serviceId) {
+      return res.status(400).json({ message: "serviceId is required" });
+    }
+
+    const service = await Service.findById(serviceId);
+    if (!service || !service.isActive) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+
+    const servicePrice = Number(service.price || 0);
+    if (!servicePrice || servicePrice <= 0) {
+      return res.status(400).json({ message: "Invalid service price" });
+    }
+
+    const amountInRupees =
+      typeof amount !== "undefined" && amount !== null
+        ? Number(amount)
+        : servicePrice;
+
+    if (Number.isNaN(amountInRupees)) {
+      return res.status(400).json({ message: "Amount must be a number" });
+    }
+
+    if (amountInRupees < RAZORPAY_MIN_AMOUNT) {
+      return res.status(400).json({
+        message: `Amount must be at least ₹${RAZORPAY_MIN_AMOUNT}`,
+      });
+    }
+    if (amountInRupees > servicePrice) {
+      return res
+        .status(400)
+        .json({ message: "Amount cannot exceed service price" });
+    }
+
+    const validTax = (amountInRupees * 18) /100;
+    if (validTax !== tax) {
+      return res
+        .status(400)
+        .json({ message: "Invalid Tax amount" });
+    }
+
+    const amountInPaise = Math.round((amountInRupees + validTax) * 100);
+
+    const shortServiceId = service._id.toString().slice(-8);
+    const shortTimestamp = Date.now().toString().slice(-6);
+
+    const options = {
+      amount: amountInPaise,
+      currency: "INR",
+      receipt: `svc_${shortServiceId}_${shortTimestamp}`,
+    };
+
+    const order = await razorpay.orders.create(options);
+
+    const userDoc = await User.findById(req.user.id).select("name email phone");
+
+    return res.json({
+      orderId: order.id,
+      amount: order.amount + validTax,
+      currency: order.currency,
+      serviceId: service._id,
+      user: userDoc
+        ? {
+            name: userDoc.name,
+            email: userDoc.email,
+            phone: userDoc.phone,
+          }
+        : null,
+    });
+  } catch (err) {
+    console.error("Error creating Razorpay order:", err);
+    if (err.error) {
+      return res.status(400).json({
+        message: err.error.description || "Razorpay error",
+        details: err.error,
+      });
+    }
+    return res.status(500).json({ message: "Unable to create order" });
+  }
+});
+
+
+// ------------------------------------------------------------
+// POST /api/payments/verify
+// ------------------------------------------------------------
 router.post("/verify", protect, async (req, res) => {
   try {
     const {
@@ -307,6 +406,7 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
     const {
       serviceId,
       amount,
+      tax,
       deviceBrand,
       deviceModel,
       deviceImei,
@@ -314,6 +414,7 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       previousPurchaseId,
     } = req.body || {};
 
+    
     if (!serviceId || typeof amount === "undefined") {
       return res
         .status(400)
@@ -324,9 +425,9 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       return res
         .status(400)
         .json({ message: "Device brand, model and IMEI are required" });
-    }
-
-    const service = await Service.findById(serviceId);
+      }
+      
+      const service = await Service.findById(serviceId);
     if (!service || !service.isActive) {
       return res.status(404).json({ message: "Service not found" });
     }
@@ -338,10 +439,18 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
     if (!Number.isFinite(servicePrice) || servicePrice <= 0) {
       return res.status(400).json({ message: "Invalid service price" });
     }
-
+    
     const amountNum = Number(amount);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       return res.status(400).json({ message: "amount must be a positive number" });
+    }
+    const validTax = (amountNum * 18) /100;
+
+    if(validTax !== tax) {
+      return res.status(400).json({
+        message:
+          "Invalid Tax value",
+      });
     }
 
     // This endpoint is for full wallet purchase only
@@ -352,12 +461,15 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       });
     }
 
-    if ((user.walletBalance || 0) < amountNum) {
+    const amountWithTax = amountNum + validTax;
+
+
+    if ((user.walletBalance || 0) < amountWithTax) {
       return res.status(400).json({ message: "Insufficient wallet balance" });
     }
 
     // Deduct wallet
-    user.walletBalance = Math.max(0, (user.walletBalance || 0) - amountNum);
+    user.walletBalance = Math.max(0, (user.walletBalance || 0) - amountWithTax);
 
     const uv = Number(service.uv || 0);
     if (!Number.isFinite(uv) || uv < 0) {
@@ -381,7 +493,7 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
             deviceImei,
 
             paymentMethod: "wallet",
-            paidViaWallet: servicePrice,
+            paidViaWallet: amountWithTax,
             paidViaRazorpay: 0,
             razorpayOrderId: null,
             razorpayPaymentId: null,

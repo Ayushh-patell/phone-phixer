@@ -26,24 +26,18 @@ const AdminUserDetail = ({ userId }) => {
         const headers = getHeaders();
 
         // 🔹 fetch user details
-        const userRes = await axios.get(
-          `${API_BASE_URL}users/admin/user`,
-          {
-            headers,
-            params: { treeOwnerId: userId },
-          }
-        );
+        const userRes = await axios.get(`${API_BASE_URL}/users/admin/user`, {
+          headers,
+          params: { treeOwnerId: userId },
+        });
 
         setUser(userRes.data);
 
         // 🔹 fetch user's tree
-        const treeRes = await axios.get(
-          `${API_BASE_URL}/referrals/tree`,
-          {
-            headers,
-            params: { rootUserId: userId },
-          }
-        );
+        const treeRes = await axios.get(`${API_BASE_URL}/referrals/tree`, {
+          headers,
+          params: { rootUserId: userId },
+        });
 
         setTreeData(treeRes.data);
       } catch (err) {
@@ -64,10 +58,15 @@ const AdminUserDetail = ({ userId }) => {
   return (
     <div className="space-y-6">
       {/* 🔹 USER INFO */}
-      <div className="rounded-xl border p-4 bg-white">
-        <h3 className="font-semibold text-lg mb-3">
-          User Details
-        </h3>
+      <div
+        className={[
+          "w-full text-left border p-3 rounded-lg hover:bg-neutral-50",
+          "relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition",
+          "hover:shadow-md",
+          "border-t-4 border-t-prim",
+        ].join(" ")}
+      >
+        <h3 className="font-semibold text-lg mb-3">User Details</h3>
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           <Info label="Name" value={user.name} />
@@ -86,10 +85,15 @@ const AdminUserDetail = ({ userId }) => {
       </div>
 
       {/* 🔹 TREE VIEW (VIEW ONLY) */}
-      <div className="rounded-xl border p-4 bg-white">
-        <h3 className="font-semibold text-lg mb-3">
-          Referral Tree
-        </h3>
+      <div
+        className={[
+          "w-full text-left border p-3 rounded-lg hover:bg-neutral-50",
+          "relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition",
+          "hover:shadow-md",
+          "border-t-4 border-t-prim",
+        ].join(" ")}
+      >
+        <h3 className="font-semibold text-lg mb-3">Referral Tree</h3>
 
         <ReferralTreeViewOnly treeData={treeData} />
       </div>

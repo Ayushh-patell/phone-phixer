@@ -23,7 +23,8 @@ function buildBinaryTree(treeData) {
     if (node.rightChildId) node.right = byId.get(node.rightChildId);
   });
 
-  return byId.get(String(treeData.rootUserId));
+  // ✅ FIX HERE
+  return byId.get(String(treeData.treeOwnerId));
 }
 
 const TreeNode = ({ node, depth = 0, maxDepth = 5 }) => {

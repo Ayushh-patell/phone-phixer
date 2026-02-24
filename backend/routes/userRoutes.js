@@ -489,20 +489,25 @@ if (!email || !password) {
       return res.status(400).json({ message: "Email/Referral and password are required" });
     }
 
-    // Normalize input: trim whitespace and convert to lowercase
-    const inputIdentifier = String(email).trim().toLowerCase();
+// 1. Normalize the input from the user
+    const input = String(email).trim();
 
-    // 1) Try normal email login (ensuring the search is against the normalized input)
-    const userByEmail = await User.findOne({ email: inputIdentifier });
+    // 2. Search Email Case-Insensitively
+    // The 'i' flag makes "User@Email.com" match "USER@EMAIL.COM"
+    const userByEmail = await User.findOne({ 
+      email: { $regex: new RegExp(`^${input}$`, 'i') } 
+    });
 
-    // 2) Also allow "login by referral code" using the same input field
-    // If it starts with "pp", strip it. Since inputIdentifier is already lowercase, 
-    // we just check for "pp".
-    const formattedCode = inputIdentifier.startsWith("pp")
-      ? inputIdentifier.slice(2)
-      : inputIdentifier;
+    // 3. Handle Referral Code
+    // First, strip "pp" if it exists (case-insensitive check)
+    const rawCode = input.toLowerCase().startsWith("pp") 
+      ? input.slice(2) 
+      : input;
 
-    const userByReferral = await User.findOne({ referralCode: formattedCode });
+    // Search Referral Case-Insensitively
+    const userByReferral = await User.findOne({ 
+      referralCode: { $regex: new RegExp(`^${rawCode}$`, 'i') } 
+    });
 
     if (!userByEmail && !userByReferral) {
       return res.status(400).json({ message: "User not found" });

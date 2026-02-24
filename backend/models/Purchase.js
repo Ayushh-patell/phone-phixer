@@ -39,6 +39,7 @@ const PurchaseSchema = new mongoose.Schema(
     refundedWalletAmount: { type: Number, default: 0 },   // INR
     refundedRazorpayAmount: { type: Number, default: 0 }, // INR
     refundedAt: { type: Date, default: null },
+    refundActive: {type:Boolean, default:false},
 
     renewedAt: {type: Date}
   },

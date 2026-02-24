@@ -160,6 +160,7 @@ router.post("/request", protect, async (req, res) => {
 
       purchase.refundedWalletAmount = round2((purchase.refundedWalletAmount || 0) + credit);
       purchase.refundedAt = new Date();
+      purchase.refundActive = true;
       await purchase.save();
 
       // ✅ NEW: reverse UV proportional to refunded total
@@ -281,6 +282,12 @@ router.post("/admin/:id/reject", protect, async (req, res) => {
     if (rr.status !== "pending") {
       return res.status(400).json({ message: `Cannot reject request in status ${rr.status}` });
     }
+const purchaseId = rr.purchaseId;
+        const purchase = await Purchase.findById(purchaseId);
+    if(purchase) {
+      purchase.refundActive = false;
+    }
+    await purchase.save();
 
     rr.status = "rejected";
     rr.reviewedBy = req.user.id;
@@ -342,6 +349,9 @@ router.post("/admin/:id/approve", protect, async (req, res) => {
       await rr.save();
       return res.status(400).json({ message: "Nothing left to refund", refundRequest: rr });
     }
+
+    purchase.refundActive = true;
+    await purchase.save();
 
     if (!purchase.razorpayPaymentId) {
       rr.status = "failed";

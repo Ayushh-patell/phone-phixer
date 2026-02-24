@@ -598,7 +598,7 @@ const PurchasesSection = () => {
                     {canRefund && (
                       <button
                         onClick={() => handleRefund(purchase)}
-                        disabled={isRefunding || isPaying}
+                        disabled={isRefunding || isPaying || purchase.refundActive}
                         className={[
                           "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition",
                           "focus:outline-none focus:ring-2 focus:ring-amber-300/40",
@@ -609,7 +609,7 @@ const PurchasesSection = () => {
                         title="Request refund (wallet refunds instant; Razorpay refunds require approval)"
                       >
                         <FiRotateCcw className="h-4 w-4" />
-                        {isRefunding ? "Requesting…" : "Refund"}
+                        {isRefunding ? "Requesting…" : purchase.refundActive ? " Refund in progress" : "Refund"}
                       </button>
                     )}
 

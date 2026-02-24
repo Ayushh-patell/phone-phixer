@@ -57,13 +57,19 @@ router.post("/register", async (req, res) => {
         .status(400)
         .json({ message: "Password must be at least 6 characters long" });
     }
+    
+// Normalize input
+    const inputEmail = String(email).trim();
 
-    // Check if user already exists
-    const existing = await User.findOne({ email });
+    // Check if user already exists (Case-Insensitive)
+    // ^ and $ ensure an exact match, 'i' ignores the case
+    const existing = await User.findOne({ 
+      email: { $regex: new RegExp(`^${inputEmail}$`, 'i') } 
+    });
+
     if (existing) {
       return res.status(400).json({ message: "Email already exists" });
     }
-
     // Hash password
     const hash = await bcrypt.hash(password, 10);
 

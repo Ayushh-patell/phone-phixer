@@ -10,6 +10,13 @@ export const generateInvoicePDF = async ({
 }) => {
   return new Promise((resolve, reject) => {
     try {
+
+    const uploadDir = path.join(process.cwd(), "uploads");
+
+    if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
       const fileName = `invoice_${purchase._id}.pdf`;
       const filePath = path.join("uploads", fileName);
 

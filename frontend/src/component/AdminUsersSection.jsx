@@ -55,7 +55,7 @@ const AdminUsers = () => {
       const token = sessionStorage.getItem("token");
       // Note: Usually updates use PATCH/PUT. 
       // If your backend uses GET for this, change back to .get
-      await axios.patch(`${API_BASE_URL}/users/admin/users/disable`, 
+      await axios.patch(`${API_BASE_URL}/users/admin/disable`, 
         { userId: id, isDisabled: !user.isDisabled },
         { headers: { Authorization: `Bearer ${token}` } }
       );

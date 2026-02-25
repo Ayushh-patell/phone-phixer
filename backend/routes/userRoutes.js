@@ -1350,6 +1350,7 @@ router.patch("/admin/disable", protect, async (req, res) => {
     return res.status(403).json({ message: "Not authorized" });
   }
 
+      const { userId, isDisable } = req.body;
 // 1. Validate input exists
 if (userId === undefined || isDisable === undefined) {
   return res.status(400).json({ message: "userId and isDisable status are required" });

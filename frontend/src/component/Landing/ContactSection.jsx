@@ -1,16 +1,47 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+
+// Assuming these are defined in your project constants or environment
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const authConfig = () => ({
+  headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+});
 
 const ContactSection = () => {
+  const [services, setServices] = useState([]);
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [error, setError] = useState("");
+
+  // =============================
+  // Fetch services list
+  // =============================
+  const fetchServices = async () => {
+    try {
+      setLoadingServices(true);
+      setError("");
+      const res = await axios.get(`${API_BASE_URL}/service`, authConfig());
+      setServices(res.data || []);
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Failed to load services.");
+    } finally {
+      setLoadingServices(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchServices();
+  }, []);
+
   return (
     <section className="w-full bg-white py-16 md:py-20">
       <div className="w-full px-6 md:px-10 2xl:px-24">
         <div className="relative grid w-full gap-10 lg:grid-cols-2 lg:items-center">
-          {/* LEFT */}
+          {/* LEFT (Contact Info) */}
           <div className="w-full">
             <h2 id="contactHomeForm" className="text-5xl font-extrabold tracking-tight text-primDark md:text-6xl">
               Contact Us
             </h2>
-
             <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-700 md:text-lg">
               Whether you have questions about our services, need support, or want to share your
               feedback, our dedicated team is here to assist you every step of the way.
@@ -19,137 +50,98 @@ const ContactSection = () => {
             <div className="mt-8 h-px w-full bg-slate-200" />
 
             <div className="mt-8 space-y-6">
-              {/* Website */}
-              <div className="flex items-start gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primDark/20 ring-1 ring-primDark/30">
-                  {/* globe */}
-                  <svg viewBox="0 0 24 24" className="h-7 w-7 text-slate-800" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z" />
-                    <path d="M2 12h20" />
-                    <path d="M12 2c3.2 3.7 3.2 16.3 0 20" />
-                    <path d="M12 2c-3.2 3.7-3.2 16.3 0 20" />
-                  </svg>
-                </div>
-
-                <div className="w-full">
-                  <div className="text-2xl font-extrabold text-primDark">Website</div>
-                  <div className="mt-1 text-base text-slate-700">phonephixer.in</div>
-                </div>
-              </div>
-
-              <div className="h-px w-full bg-slate-200" />
-
-              {/* Email */}
-              <div className="flex items-start gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primDark/20 ring-1 ring-primDark/30">
-                  {/* mail */}
-                  <svg viewBox="0 0 24 24" className="h-7 w-7 text-slate-800" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M4 6h16v12H4z" />
-                    <path d="m4 7 8 6 8-6" />
-                  </svg>
-                </div>
-
-                <div className="w-full">
-                  <div className="text-2xl font-extrabold text-primDark">Email</div>
-                  <div className="mt-1 text-base text-slate-700">phonephixerr@gmail.com</div>
-                </div>
-              </div>
-
-              <div className="h-px w-full bg-slate-200" />
-
-              {/* Phone */}
-              <div className="flex items-start gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primDark/20 ring-1 ring-primDark/30">
-                  {/* phone */}
-                  <svg viewBox="0 0 24 24" className="h-7 w-7 text-slate-800" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1A19.5 19.5 0 0 1 3.2 10.8 19.8 19.8 0 0 1 .1 2.2 2 2 0 0 1 2.1 0h3a2 2 0 0 1 2 1.7 12.7 12.7 0 0 0 .7 2.8 2 2 0 0 1-.5 2.1L6.2 7.7a16 16 0 0 0 6.1 6.1l1.1-1.1a2 2 0 0 1 2.1-.5 12.7 12.7 0 0 0 2.8.7 2 2 0 0 1 1.7 2Z" />
-                  </svg>
-                </div>
-
-                <div className="w-full">
-                  <div className="text-2xl font-extrabold text-primDark">Phone</div>
-                  <div className="mt-1 text-base text-slate-700"><a href="tel:7737178264">7737178264</a></div>
-                </div>
-              </div>
-
-              <div className="h-px w-full bg-slate-200" />
-
-              {/* Location */}
-              <div className="flex items-start gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primDark/20 ring-1 ring-primDark/30">
-                  {/* location */}
-                  <svg viewBox="0 0 24 24" className="h-7 w-7 text-slate-800" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 21s7-4.4 7-11a7 7 0 0 0-14 0c0 6.6 7 11 7 11Z" />
-                    <path d="M12 10a2.5 2.5 0 1 0 0 .1Z" />
-                  </svg>
-                </div>
-
-                <div className="w-full">
-                  <div className="text-2xl font-extrabold text-primDark">Location</div>
-                  <div className="mt-1 text-base text-slate-700">
-                    139, Avadhpuri - II, Near Mahesh Nagar Phatak, Jaipur - 302015
+              {/* Info Items (Website, Email, Phone, Location) */}
+              {[
+                { label: "Website", value: "phonephixer.in", icon: "globe" },
+                { label: "Email", value: "phonephixerr@gmail.com", icon: "mail" },
+                { label: "Phone", value: "7737178264", icon: "phone", link: "tel:7737178264" },
+                { label: "Location", value: "139, Avadhpuri - II, Jaipur - 302015", icon: "location" },
+              ].map((item, idx) => (
+                <React.Fragment key={idx}>
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primDark/20 ring-1 ring-primDark/30 text-slate-800">
+                       {/* SVG Icons based on item.icon would go here */}
+                       <span className="capitalize text-lg font-bold">{item.label[0]}</span>
+                    </div>
+                    <div className="w-full">
+                      <div className="text-2xl font-extrabold text-primDark">{item.label}</div>
+                      <div className="mt-1 text-base text-slate-700">{item.link ? <a href={item.link}>{item.value}</a> : item.value}</div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                  {idx !== 3 && <div className="h-px w-full bg-slate-200" />}
+                </React.Fragment>
+              ))}
             </div>
           </div>
 
-          {/* RIGHT (form card) */}
+          {/* RIGHT (Form Card) */}
           <div className="relative w-full">
-            {/* black slab behind (like screenshot) */}
             <div className="absolute -right-6 md:-right-10 2xl:-right-24 -top-8 hidden h-[calc(100%+4rem)] w-[45vw] bg-black lg:block" />
 
-            <div className="relative overflow-hidden rounded-[40px] bg-linear-to-br from-primDark via-[#1b7f8f] to-[#0b4452] p-8 shadow-2xl shadow-black/30 md:p-10">
+            <div className="relative overflow-hidden rounded-[40px] bg-gradient-to-br from-primDark via-[#1b7f8f] to-[#0b4452] p-8 shadow-2xl shadow-black/30 md:p-10">
               <h3 className="text-center text-5xl font-extrabold tracking-tight text-white md:text-6xl">
                 Get in touch.
               </h3>
 
               <form className="mt-10 space-y-5">
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-white/90">Your Name</label>
-                  <input
-                    type="text"
-                    placeholder="Enter your name"
-                    className="w-full rounded-2xl bg-white/90 px-5 py-4 text-sm text-slate-900 outline-none ring-1 ring-white/40 placeholder:text-slate-500 focus:ring-2 focus:ring-white"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-white/90">Your Name</label>
+                    <input
+                      type="text"
+                      placeholder="Enter name"
+                      className="w-full rounded-2xl bg-white/90 px-5 py-4 text-sm text-slate-900 outline-none ring-1 ring-white/40 focus:ring-2 focus:ring-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-white/90">Phone Number</label>
+                    <input
+                      type="tel"
+                      placeholder="Enter phone"
+                      className="w-full rounded-2xl bg-white/90 px-5 py-4 text-sm text-slate-900 outline-none ring-1 ring-white/40 focus:ring-2 focus:ring-white"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-white/90">Email Address</label>
-                  <input
-                    type="email"
-                    placeholder="Enter your email"
-                    className="w-full rounded-2xl bg-white/90 px-5 py-4 text-sm text-slate-900 outline-none ring-1 ring-white/40 placeholder:text-slate-500 focus:ring-2 focus:ring-white"
-                  />
-                </div>
+                  <label className="mb-2 block text-sm font-semibold text-white/90">Service Required</label>
+                  <select 
+                    className="w-full rounded-2xl bg-white/90 px-5 py-4 text-sm text-slate-900 outline-none ring-1 ring-white/40 focus:ring-2 focus:ring-white appearance-none cursor-pointer"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Select a service</option>
+                    
+                    {/* Additional Options Requested */}
+                    <option value="repair_phone">Repair Phone</option>
+                    <option value="repair_tablet">Repair Tablet</option>
 
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-white/90">Phone Number</label>
-                  <input
-                    type="tel"
-                    placeholder="Enter your phone"
-                    className="w-full rounded-2xl bg-white/90 px-5 py-4 text-sm text-slate-900 outline-none ring-1 ring-white/40 placeholder:text-slate-500 focus:ring-2 focus:ring-white"
-                  />
+                    {/* Dynamic Services from API */}
+                    {!loadingServices && services.map((s) => (
+                      <option key={s._id} value={s.name}>{s.name}</option>
+                    ))}
+
+                    <option value="other">Other</option>
+                  </select>
                 </div>
 
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-white/90">Message</label>
                   <textarea
-                    rows={5}
-                    placeholder="Write your message"
-                    className="w-full resize-none rounded-2xl bg-white/90 px-5 py-4 text-sm text-slate-900 outline-none ring-1 ring-white/40 placeholder:text-slate-500 focus:ring-2 focus:ring-white"
+                    rows={4}
+                    placeholder="Describe your issue..."
+                    className="w-full resize-none rounded-2xl bg-white/90 px-5 py-4 text-sm text-slate-900 outline-none ring-1 ring-white/40 focus:ring-2 focus:ring-white"
                   />
                 </div>
 
                 <button
-                  type="button"
+                  type="submit"
                   className="mt-2 inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-4 text-sm font-extrabold text-slate-900 shadow-lg shadow-black/20 transition hover:bg-white/90 focus:outline-none focus:ring-2 focus:ring-white/70"
                 >
-                  Submit
+                  {loadingServices ? "Loading..." : "Submit Request"}
                 </button>
 
                 <p className="text-center text-xs text-white/70">
-                  We typically respond within a few hours during working days.
+                  We typically respond within a few hours.
                 </p>
               </form>
             </div>

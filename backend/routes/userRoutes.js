@@ -1350,19 +1350,28 @@ router.patch("/admin/disable", protect, async (req, res) => {
     return res.status(403).json({ message: "Not authorized" });
   }
 
-      const { userId, isDisable } = req.query;
-      const user = await User.findById(userId);
+// 1. Validate input exists
+if (userId === undefined || isDisable === undefined) {
+  return res.status(400).json({ message: "userId and isDisable status are required" });
+}
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-      user.isDisabled = isDisable;
-      await user.save();
+// 2. Find and Update in one go (more efficient)
+// Use { new: true } to get the updated document back
+const user = await User.findByIdAndUpdate(
+  userId, 
+  { isDisabled: isDisable }, 
+  { new: true, runValidators: true }
+);
 
+if (!user) {
+  return res.status(404).json({ message: "User not found" });
+}
 
-
-      return res.status(200).json({ message: "User Status Updated" });
-
+// 3. Return success
+res.status(200).json({ 
+  message: `User has been ${isDisable ? 'disabled' : 'enabled'}`, 
+  user 
+});
   } catch (err) {
     console.error("Error fetching user info:", err);
     return res.status(500).json({ message: "Server error" });

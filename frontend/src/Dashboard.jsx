@@ -27,6 +27,7 @@ import SettingsSection from "./component/SettingsSection";
 import RequestSection from "./component/RequestSection";
 import WithdrawalRequestSection from "./component/WithdrawalRequestSection";
 import AdminUsers from "./component/AdminUsersSection";
+import ServiceManagement from "./component/ServiceManagement";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -207,6 +208,7 @@ function Dashboard() {
 
                   <NavButton id="settings" label="Settings" Icon={FiSettings} />
                   <NavButton id="users" label="Users" Icon={FiUsers} />
+                  <NavButton id="service-management" label="Service Management" Icon={FiTool} />
                 </>
                 }
               </div>
@@ -273,6 +275,8 @@ function Dashboard() {
 
             <NavButton id="settings" label="Settings" Icon={FiSettings} />
             <NavButton id="users" label="Users" Icon={FiUsers} />
+            <NavButton id="service-management" label="Service Management" Icon={FiTool} />
+
             </>
             }
           </nav>
@@ -329,6 +333,8 @@ function Dashboard() {
                         ? "Withdrawal Request Panel"
                         : activeTab === "users"
                         ? "Users details Panel"
+                        : activeTab === "service-management"
+                        ? "Create, Update or Delete Services"
                         : "Your star level and benefits."}
                     </div>
                   </div>
@@ -370,6 +376,7 @@ function Dashboard() {
             {activeTab === "request" && <RequestSection user={user} />}
             {activeTab === "withdrawal" && <WithdrawalRequestSection user={user} />}
             {activeTab === "users" && <AdminUsers user={user} />}
+            {activeTab === "service-management" && <ServiceManagement user={user} />}
           </main>
         </div>
       </div>

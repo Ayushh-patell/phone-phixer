@@ -80,7 +80,7 @@ router.post("/register", async (req, res) => {
       dob: dob || null,
       password: hash,
       verified: false,
-      aadhaarVerified: false,
+      aadhaarVerified: true,
       address: address || null,
       deviceBrand: deviceBrand || null,
       deviceModel: deviceModel || null,

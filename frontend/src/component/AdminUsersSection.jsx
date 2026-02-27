@@ -112,7 +112,7 @@ const AdminUsers = () => {
                       e.stopPropagation(); // Prevents selecting user when clicking button
                       handleDisableToggle(u);
                     }}
-                    className={`ml-2 text-xs font-medium px-2.5 py-1 rounded-full border transition
+                    className={`ml-2 text-xs font-medium px-2.5 py-1 rounded-full border transition cursor-pointer
                       ${u.isDisabled 
                         ? "bg-red-50 text-red-600 border-red-200 hover:bg-red-100" 
                         : "bg-green-50 text-green-600 border-green-200 hover:bg-green-100"

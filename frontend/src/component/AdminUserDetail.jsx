@@ -15,9 +15,7 @@ const AdminUserDetail = ({ userId }) => {
     return { Authorization: `Bearer ${token}` };
   };
 
-  useEffect(() => {
-    if (!userId) return;
-
+  
     const load = async () => {
       try {
         setLoading(true);
@@ -48,12 +46,37 @@ const AdminUserDetail = ({ userId }) => {
       }
     };
 
+  useEffect(() => {
+    if (!userId) return;
+
+
     load();
   }, [userId]);
 
   if (loading) return <div className="p-6">Loading…</div>;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
   if (!user) return null;
+
+
+
+    const handleRoleToggle = async () => {
+      const id = userId;
+      const newRole = user.role ===  'user' ? 'admin' : 'user';
+      if (!confirm(`Are you sure you want to change the role of this user to ${newRole}?`)) return;
+  
+      try {
+        const token = sessionStorage.getItem("token");
+        await axios.patch(`${API_BASE_URL}/users/admin/role`, 
+          { userId: id, role: newRole },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+  
+        alert("User status updated successfully");
+        load();
+      } catch (err) {
+        alert(err.response?.data?.message || "Update failed");
+      }
+    };
 
   return (
     <div className="space-y-6">
@@ -66,7 +89,7 @@ const AdminUserDetail = ({ userId }) => {
           "border-t-4 border-t-prim",
         ].join(" ")}
       >
-        <h3 className="font-semibold text-lg mb-3">User Details</h3>
+        <h3 className="font-semibold text-lg mb-3 flex justify-between items-center gap-2"><span>User Details</span> <span className=" text-sm text-orange-600 cursor-pointer" onClick={handleRoleToggle}>Change Role</span></h3>
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           <Info label="Name" value={user.name} />

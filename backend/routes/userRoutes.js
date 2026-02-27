@@ -1381,4 +1381,48 @@ res.status(200).json({
 });
 
 
+// PATCH /admin/role change user roles 
+router.patch("/admin/role", protect, async (req, res) => {
+
+  try {
+    // Authorization rule requested:
+  if (!req.user.isAdmin) {
+    return res.status(403).json({ message: "Not authorized" });
+  }
+
+      const { userId, role } = req.body;
+// 1. Validate input exists
+if (userId === undefined || role === undefined) {
+  return res.status(400).json({ message: "userId and role are required" });
+}
+
+if(!(["user",'admin'].includes(role))) {
+  return res.status(400).json({ message: "Invalid role" });
+}
+
+// 2. Find and Update in one go (more efficient)
+// Use { new: true } to get the updated document back
+const user = await User.findByIdAndUpdate(
+  userId, 
+  { role: role }, 
+  { new: true, runValidators: true }
+);
+
+if (!user) {
+  return res.status(404).json({ message: "User not found" });
+}
+
+// 3. Return success
+res.status(200).json({ 
+  message: `User role has been Changed`, 
+  user 
+});
+  } catch (err) {
+    console.error("Error fetching user info:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+
+});
+
+
 export default router;

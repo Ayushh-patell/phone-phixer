@@ -64,6 +64,13 @@ router.post("/create-order", protect, async (req, res) => {
       return res.status(404).json({ message: "Service not found" });
     }
 
+        const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if(user.isDisabled) {
+      return res.status(404).json({ message: "Account Disabled" })
+    }
+
     const servicePrice = Number(service.price || 0);
     if (!servicePrice || servicePrice <= 0) {
       return res.status(400).json({ message: "Invalid service price" });
@@ -190,9 +197,12 @@ router.post("/verify", protect, async (req, res) => {
     const service = await Service.findById(serviceId);
     if (!service) return res.status(404).json({ message: "Service not found" });
 
-    const user = await User.findById(req.user.id);
+        const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    if(user.isDisabled) {
+      return res.status(404).json({ message: "Account Disabled" })
+    }
     const servicePrice = Number(service.price || 0);
     if (!Number.isFinite(servicePrice) || servicePrice <= 0) {
       return res.status(400).json({ message: "Invalid service price" });
@@ -480,9 +490,13 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       return res.status(404).json({ message: "Service not found" });
     }
 
-    const user = await User.findById(req.user.id);
+        const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    if(user.isDisabled) {
+      return res.status(404).json({ message: "Account Disabled" })
+    }
+    
     const servicePrice = Number(service.price || 0);
     if (!Number.isFinite(servicePrice) || servicePrice <= 0) {
       return res.status(400).json({ message: "Invalid service price" });

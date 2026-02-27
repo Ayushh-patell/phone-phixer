@@ -224,6 +224,14 @@ router.post("/place", protect, async (req, res) => {
         .json({ message: "Parent and child cannot be the same user" });
     }
 
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+    
+        if(user.isDisabled) {
+          return res.status(404).json({ message: "Account Disabled" })
+        }
+
+
     const normalizedPos = String(position).toLowerCase();
     if (!["left", "right"].includes(normalizedPos)) {
       return res

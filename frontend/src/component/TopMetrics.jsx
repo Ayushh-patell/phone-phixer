@@ -78,7 +78,7 @@ function Pill({ children, tone = "neutral" }) {
   );
 }
 
-const TopMetrics = () => {
+const TopMetrics = ({userDetails}) => {
   const [loading, setLoading] = useState(true);
   const [applyLoading, setApplyLoading] = useState(false);
   const [joinLoading, setJoinLoading] = useState(false);
@@ -174,7 +174,7 @@ const TopMetrics = () => {
         placement: user.placement || null,
         referralUsed: user.referralUsed || null,
         referralCode: user.referralCode || null,
-        referralActive: user.referralActive || false,
+        referralActive: userDetails.admin || user.referralActive || false,
         star: user.star ?? 1,
         at_hotposition: user.at_hotposition || false,
       });

@@ -3,13 +3,13 @@ import TopMetrics from "./TopMetrics";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-const OverviewSection = () => {
+const OverviewSection = ({user}) => {
 
 
   return (
     <>
       {/* Metrics */}
-     <TopMetrics/>
+     <TopMetrics userDetails={user} />
 
       {/* Referral Tree */}
       <ReferralTree/>

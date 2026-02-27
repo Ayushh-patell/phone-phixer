@@ -56,7 +56,7 @@ const AdminUsers = () => {
       // Note: Usually updates use PATCH/PUT. 
       // If your backend uses GET for this, change back to .get
       await axios.patch(`${API_BASE_URL}/users/admin/disable`, 
-        { userId: id, isDisabled: !user.isDisabled },
+        { userId: id, isDisable: !user.isDisabled },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 

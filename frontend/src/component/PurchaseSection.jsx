@@ -399,6 +399,59 @@ const PurchasesSection = () => {
     }
   };
 
+
+  const renderDeviceSection = (purchase) => {
+  // 1. Check if the new 'devices' array exists and has items
+  const hasDevicesArray = Array.isArray(purchase.devices) && purchase.devices.length > 0;
+
+  if (hasDevicesArray) {
+    return (
+      <div className="mt-4 space-y-2">
+        <div className="flex items-center gap-1.5 text-[11px] font-bold text-neutral-900 uppercase">
+          <FiLayers className="h-3.5 w-3.5 text-blue-500" />
+          Registered Devices ({purchase.devices.length})
+        </div>
+        <div className="grid gap-2">
+          {purchase.devices.map((dev, idx) => (
+            <div key={idx} className="rounded-xl border border-neutral-100 bg-neutral-50 p-2.5 text-[11px]">
+              <div className="font-bold text-neutral-800">
+                {dev.deviceBrand} {dev.deviceModel}
+              </div>
+              {dev.deviceImei && (
+                <div className="mt-0.5 flex items-center gap-1 font-mono text-neutral-500">
+                  <FiHash className="h-3 w-3" /> {dev.deviceImei}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Fallback: If array is empty/missing, check for the old single fields
+  if (purchase.deviceBrand || purchase.deviceImei) {
+    return (
+      <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-[11px]">
+        <div className="flex items-center gap-2 text-xs font-semibold text-neutral-900 mb-1.5">
+          <FiSmartphone className="h-4 w-4 text-neutral-400" />
+          Device Details
+        </div>
+        <div className="text-neutral-700 font-bold">
+          {purchase.deviceBrand} {purchase.deviceModel}
+        </div>
+        {purchase.deviceImei && (
+          <div className="mt-1 flex items-center gap-1 font-mono text-neutral-500">
+            <FiHash className="h-3 w-3" /> {purchase.deviceImei}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+};
+
   return (
     <div>
       {/* Header */}
@@ -548,31 +601,7 @@ const PurchasesSection = () => {
                   )}
                 </div>
 
-                {(purchase.deviceBrand || purchase.deviceModel || purchase.deviceImei) && (
-                  <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-[11px] text-neutral-700">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-neutral-900 mb-2">
-                      <FiSmartphone className="h-4 w-4" />
-                      Device used
-                    </div>
-                    {(purchase.deviceBrand || purchase.deviceModel) && (
-                      <div>
-                        <span className="text-neutral-500">Device:</span>{" "}
-                        <span className="font-semibold text-neutral-900">
-                          {purchase.deviceBrand} {purchase.deviceModel}
-                        </span>
-                      </div>
-                    )}
-                    {purchase.deviceImei && (
-                      <div className="mt-0.5 flex items-center gap-2">
-                        <FiHash className="h-4 w-4 text-neutral-500" />
-                        <span className="text-neutral-500">IMEI:</span>{" "}
-                        <span className="font-mono font-semibold text-neutral-900">
-                          {purchase.deviceImei}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
+                  {renderDeviceSection(purchase)}
 
                 <div className="mt-5 flex items-center justify-between gap-3">
                   <div className="text-[11px] text-neutral-600">

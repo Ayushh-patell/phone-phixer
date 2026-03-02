@@ -28,6 +28,7 @@ import RequestSection from "./component/RequestSection";
 import WithdrawalRequestSection from "./component/WithdrawalRequestSection";
 import AdminUsers from "./component/AdminUsersSection";
 import ServiceManagement from "./component/ServiceManagement";
+import PurchaseView from "./component/PurchaseView";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -209,6 +210,8 @@ function Dashboard() {
                   <NavButton id="settings" label="Settings" Icon={FiSettings} />
                   <NavButton id="users" label="Users" Icon={FiUsers} />
                   <NavButton id="service-management" label="Service Management" Icon={FiTool} />
+                  <NavButton id="view-purchase" label="View Purchases" Icon={FiShoppingBag} />
+
                 </>
                 }
               </div>
@@ -276,6 +279,7 @@ function Dashboard() {
             <NavButton id="settings" label="Settings" Icon={FiSettings} />
             <NavButton id="users" label="Users" Icon={FiUsers} />
             <NavButton id="service-management" label="Service Management" Icon={FiTool} />
+            <NavButton id="view-purchase" label="View Purchases" Icon={FiShoppingBag} />
 
             </>
             }
@@ -335,6 +339,8 @@ function Dashboard() {
                         ? "Users details Panel"
                         : activeTab === "service-management"
                         ? "Create, Update or Delete Services"
+                        : activeTab === "view-purchase"
+                        ? "View purchases with date range"
                         : "Your star level and benefits."}
                     </div>
                   </div>
@@ -377,6 +383,7 @@ function Dashboard() {
             {activeTab === "withdrawal" && <WithdrawalRequestSection user={user} />}
             {activeTab === "users" && <AdminUsers user={user} />}
             {activeTab === "service-management" && <ServiceManagement user={user} />}
+            {activeTab === "view-purchase" && <PurchaseView />}
           </main>
         </div>
       </div>

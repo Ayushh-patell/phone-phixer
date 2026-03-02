@@ -23,3 +23,6 @@ user admin update
 service specific device 
 aadar remove
 home page 3 buttons
+view every purchase
+invoice design change
+

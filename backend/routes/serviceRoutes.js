@@ -17,9 +17,9 @@ router.post("/create", protect, async (req, res) => {
       return res.status(403).json({ message: "Admin access required" });
     }
 
-    const { name, description, price, uv, validityDays } = req.body;
+    const { name, description, price, uv, validityDays, deviceCovered } = req.body;
 
-    if (!name || !price || !uv || !validityDays) {
+    if (!name || !price || !uv || !validityDays || !deviceCovered) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
@@ -29,6 +29,7 @@ router.post("/create", protect, async (req, res) => {
       price,
       uv,
       validityDays,
+      deviceCovered,
     });
 
     res.json({ message: "Service created", service });
@@ -110,7 +111,7 @@ router.put("/:id", protect, async (req, res) => {
       return res.status(403).json({ message: "Admin access required" });
     }
 
-    const { name, description, price, uv, validityDays, isActive } = req.body;
+    const { name, description, price, uv, validityDays, isActive, deviceCovered } = req.body;
 
     const service = await Service.findById(req.params.id);
     if (!service) {
@@ -123,6 +124,7 @@ router.put("/:id", protect, async (req, res) => {
     if (uv !== undefined) service.uv = uv;
     if (validityDays !== undefined) service.validityDays = validityDays;
     if (isActive !== undefined) service.isActive = isActive;
+    if (deviceCovered !== undefined) service.deviceCovered = deviceCovered;
 
     const updatedService = await service.save();
 

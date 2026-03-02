@@ -39,7 +39,7 @@ router.post("/register", async (req, res) => {
     } = req.body || {};
 
     // Check if all required fields are provided
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !dob) {
       return res
         .status(400)
         .json({ message: "Name, email, and password are required" });
@@ -466,13 +466,57 @@ router.post("/verify-code", async (req, res) => {
     }
 
     // CREATE REFERAL CODE
-    let refCode;
-    let exists = true;
+// --- NEW REFERRAL CODE GENERATION WITH SAFETY CHECK ---
+// 1. Determine the base date
+const baseDate = user.dob ? new Date(user.dob) : new Date();
+const day = String(baseDate.getDate()).padStart(2, '0');
+const month = String(baseDate.getMonth() + 1).padStart(2, '0');
 
-    while (exists) {
-    refCode = crypto.randomBytes(5).toString("hex").toUpperCase(); // 10 chars
-    exists = await User.findOne({ referralCode: refCode });
-    }
+// Get last 2 digits of the year (e.g., 2002 -> "02")
+const yearYY = String(baseDate.getFullYear()).slice(-2); 
+const datePart = `${day}${month}${yearYY}`;
+
+/**
+ * STRATEGY: 
+ * Instead of picking a random number and checking if it exists (which slows down 
+ * as you hit 900+ users), we find the highest existing suffix for that date 
+ * and increment it by 1.
+ */
+
+const lastUser = await User.findOne({ 
+  referralCode: { $regex: new RegExp(`^${datePart}`) } 
+})
+.sort({ referralCode: -1 }) // Get the highest number (e.g., 005)
+.select('referralCode')
+.lean();
+
+let nextSuffix = 0;
+
+if (lastUser) {
+  // Extract the last 3 digits and increment
+  const lastSuffix = parseInt(lastUser.referralCode.slice(-3));
+  nextSuffix = lastSuffix + 1;
+}
+
+if (nextSuffix >= 1000) {
+  return res.status(400).json({ 
+    message: "Max referral code limit (1000) reached for this birth date." 
+  });
+}
+
+// Format to 3 digits (e.g., 5 becomes "005")
+const suffixString = String(nextSuffix).padStart(3, '0');
+const refCode = `${datePart}${suffixString}`;
+
+
+    // CREATE REFERAL CODE ------ DEPRECATED
+    // let refCode;
+    // let exists = true;
+
+    // while (exists) {
+    // refCode = crypto.randomBytes(5).toString("hex").toUpperCase(); // 10 chars
+    // exists = await User.findOne({ referralCode: refCode });
+    // }
 
     await User.findByIdAndUpdate(userId, { verified: true, referralCode: refCode });
     await Code.deleteMany({ userId, type: "email_verify" });
@@ -1337,6 +1381,102 @@ router.get("/admin/user", protect, async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching user info:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// PUT /admin/user/:id
+router.put("/admin/user/:id", protect, async (req, res) => {
+  let session = null;
+
+  try {
+    // 1. Admin Authorization Check
+    if (!req.user.isAdmin) {
+      return res.status(403).json({ message: "Not authorized. Admin access required." });
+    }
+
+    const userId = req.params.id;
+    const { name, dob, phone, address } = req.body || {};
+
+    // 2. Prepare Update Data (Only these 4 fields)
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (dob !== undefined) updateData.dob = dob;
+    if (phone !== undefined) updateData.phone = phone;
+    if (address !== undefined) updateData.address = address;
+
+    // Check if any valid fields were actually provided
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: "No valid fields provided for update" });
+    }
+
+    // 3. Execution Logic with Transaction Fallback
+    const runUpdate = async (useSession) => {
+      const opts = useSession ? { session, new: true } : { new: true };
+      
+      const updatedUser = await User.findByIdAndUpdate(
+        userId, 
+        { $set: updateData }, 
+        opts
+      );
+
+      if (!updatedUser) {
+        throw new Error("UserNotFound");
+      }
+      return updatedUser;
+    };
+
+    let updatedUser;
+    try {
+      session = await mongoose.startSession();
+      session.startTransaction();
+
+      updatedUser = await runUpdate(true);
+
+      await session.commitTransaction();
+      session.endSession();
+      session = null;
+    } catch (txErr) {
+      if (session) {
+        try { await session.abortTransaction(); } catch {}
+        session.endSession();
+        session = null;
+      }
+
+      // Handle the case where the user ID doesn't exist
+      if (txErr.message === "UserNotFound") {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Fallback for standalone MongoDB (No Replica Set)
+      const msg = String(txErr?.message || "");
+      const isTxnNotSupported = 
+        msg.includes("replica set") || 
+        msg.includes("Transaction numbers");
+
+      if (!isTxnNotSupported) throw txErr;
+
+      updatedUser = await runUpdate(false);
+    }
+
+    return res.status(200).json({
+      message: "User details updated successfully",
+      updatedFields: Object.keys(updateData),
+      user: {
+        id: updatedUser._id,
+        name: updatedUser.name,
+        dob: updatedUser.dob,
+        phone: updatedUser.phone,
+        address: updatedUser.address
+      }
+    });
+
+  } catch (error) {
+    if (session) {
+      try { await session.abortTransaction(); } catch {}
+      session.endSession();
+    }
+    console.error("ADMIN UPDATE ERROR:", error);
     return res.status(500).json({ message: "Server error" });
   }
 });

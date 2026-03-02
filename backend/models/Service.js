@@ -9,6 +9,7 @@ const ServiceSchema = new mongoose.Schema(
 
 
     validityDays: { type: Number, required: true },
+    deviceCovered: { type: Number, required: true, default: 1 },
     isActive: { type: Boolean, default: true }
   },
   { timestamps: true }

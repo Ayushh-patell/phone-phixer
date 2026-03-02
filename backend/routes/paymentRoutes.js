@@ -160,9 +160,12 @@ router.post("/verify", protect, async (req, res) => {
       useWallet,
       walletUsed,
       originalPrice,
+// Single device fields (keep for fallback)
       deviceBrand,
       deviceModel,
       deviceImei,
+      // New devices array field
+      devices,
       isRenew,
       previousPurchaseId,
     } = req.body || {};
@@ -175,12 +178,6 @@ router.post("/verify", protect, async (req, res) => {
       !serviceId
     ) {
       return res.status(400).json({ message: "Missing payment details" });
-    }
-
-    if (!deviceBrand || !deviceModel || !deviceImei) {
-      return res
-        .status(400)
-        .json({ message: "Device brand, model and IMEI are required" });
     }
 
     // Verify Razorpay signature
@@ -196,6 +193,26 @@ router.post("/verify", protect, async (req, res) => {
 
     const service = await Service.findById(serviceId);
     if (!service) return res.status(404).json({ message: "Service not found" });
+
+
+    // NEW: Device Array Validation
+    if (!Array.isArray(devices) || devices.length === 0) {
+      return res.status(400).json({ message: "Devices list is required" });
+    }
+
+    const maxAllowed = service.deviceCovered || 1; // Default to 1 if not defined
+    if (devices.length > maxAllowed) {
+      return res.status(400).json({ 
+        message: `This service only covers up to ${maxAllowed} device(s).` 
+      });
+    }
+
+    // Validate structure of objects inside devices array
+    for (const d of devices) {
+      if (!d.deviceBrand || !d.deviceModel || !d.deviceImei) {
+        return res.status(400).json({ message: "Each device must have brand, model, and IMEI" });
+      }
+    }
 
         const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -283,9 +300,10 @@ router.post("/verify", protect, async (req, res) => {
         {
           $set: {
             renewedAt: new Date(),
-            deviceBrand,
-            deviceModel,
-            deviceImei,
+            deviceBrand: devices[0].deviceBrand, // Store first device in legacy fields
+            deviceModel: devices[0].deviceModel,
+            deviceImei: devices[0].deviceImei,
+            devices: devices, // Store full array
             paymentMethod,
             paidViaWallet,
             paidViaRazorpay,
@@ -315,9 +333,10 @@ router.post("/verify", protect, async (req, res) => {
         razorpayOrderId: paidViaRazorpayBase > 0 ? razorpay_order_id : null,
         razorpayPaymentId:
           paidViaRazorpayBase > 0 ? razorpay_payment_id : null,
-        deviceBrand,
-        deviceModel,
-        deviceImei,
+        deviceBrand: devices[0].deviceBrand, // Store first device in legacy fields
+        deviceModel: devices[0].deviceModel,
+        deviceImei: devices[0].deviceImei,
+        devices: devices, // Store full array
       });
     }
 
@@ -407,7 +426,7 @@ router.post("/verify", protect, async (req, res) => {
     await user.save();
 
     // -----------------------------
-    // Invoice (FIXED syntax)
+    // Invoice
     // -----------------------------
     try {
       const invoicePath = await generateInvoicePDF({
@@ -469,6 +488,7 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
       deviceBrand,
       deviceModel,
       deviceImei,
+      devices,
       isRenew,
       previousPurchaseId,
     } = req.body || {};
@@ -479,15 +499,29 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
         .json({ message: "serviceId and amount are required" });
     }
 
-    if (!deviceBrand || !deviceModel || !deviceImei) {
-      return res.status(400).json({
-        message: "Device brand, model and IMEI are required",
-      });
-    }
 
     const service = await Service.findById(serviceId);
     if (!service || !service.isActive) {
       return res.status(404).json({ message: "Service not found" });
+    }
+
+    // NEW: Device Array Validation
+    if (!Array.isArray(devices) || devices.length === 0) {
+      return res.status(400).json({ message: "Devices list is required" });
+    }
+
+    const maxAllowed = service.deviceCovered || 1; // Default to 1 if not defined
+    if (devices.length > maxAllowed) {
+      return res.status(400).json({ 
+        message: `This service only covers up to ${maxAllowed} device(s).` 
+      });
+    }
+
+    // Validate structure of objects inside devices array
+    for (const d of devices) {
+      if (!d.deviceBrand || !d.deviceModel || !d.deviceImei) {
+        return res.status(400).json({ message: "Each device must have brand, model, and IMEI" });
+      }
     }
 
         const user = await User.findById(req.user.id);
@@ -556,9 +590,10 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
         {
           $set: {
             renewedAt: new Date(),
-            deviceBrand,
-            deviceModel,
-            deviceImei,
+            deviceBrand: devices[0].deviceBrand, // Store first device in legacy fields
+            deviceModel: devices[0].deviceModel,
+            deviceImei: devices[0].deviceImei,
+            devices: devices, // Store full array
             paymentMethod: "wallet",
             paidViaWallet: amountWithTax,
             paidViaRazorpay: 0,
@@ -586,9 +621,10 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
         paidViaRazorpay: 0,
         razorpayOrderId: null,
         razorpayPaymentId: null,
-        deviceBrand,
-        deviceModel,
-        deviceImei,
+        deviceBrand: devices[0].deviceBrand, // Store first device in legacy fields
+        deviceModel: devices[0].deviceModel,
+        deviceImei: devices[0].deviceImei,
+        devices: devices, // Store full array
       });
     }
 
@@ -673,13 +709,13 @@ router.post("/pay-with-wallet", protect, async (req, res) => {
     }
 
     // -----------------------------
-    // Invoice (FIXED syntax)
+    // Invoice
     // -----------------------------
     try {
       const invoicePath = await generateInvoicePDF({
         purchase,
         user,
-        tax: taxAmount,
+        tax: validTax,
         service,
       });
 

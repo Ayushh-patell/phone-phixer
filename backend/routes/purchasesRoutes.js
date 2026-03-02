@@ -9,6 +9,9 @@ import { protect } from "../middleware/authMiddleware.js";
  * Works even if you didn't add "refunded"/"partial_refunded" to status enum.
  */
 function isRefundedPurchase(p) {
+  // Check the new boolean flag first
+  if (p.refundActive === true) return true;
+
   const s = (p.status || "").toString().toLowerCase();
   if (s === "refunded" || s === "partial_refunded") return true;
 
@@ -36,42 +39,34 @@ router.get("/admin", protect, async (req, res) => {
     }
 
     const { startDate, endDate } = req.query;
-
     const filter = {};
 
-    // Optional date range on createdAt / renewedAt
     if (startDate || endDate) {
       const dateFilter = {};
-
       if (startDate) {
         const start = new Date(startDate);
-        if (isNaN(start.getTime())) {
-          return res.status(400).json({ message: "Invalid startDate" });
-        }
+        if (isNaN(start.getTime())) return res.status(400).json({ message: "Invalid startDate" });
         dateFilter.$gte = start;
       }
-
       if (endDate) {
         const end = new Date(endDate);
-        if (isNaN(end.getTime())) {
-          return res.status(400).json({ message: "Invalid endDate" });
-        }
+        if (isNaN(end.getTime())) return res.status(400).json({ message: "Invalid endDate" });
         end.setHours(23, 59, 59, 999);
         dateFilter.$lte = end;
       }
-
       filter.$or = [{ createdAt: dateFilter }, { renewedAt: dateFilter }];
     }
 
     const purchases = await Purchase.find(filter)
       .populate("userId", "name email phone")
-      .populate("serviceId", "name price uv validityDays")
+      // Added deviceCovered to population so the frontend knows the limit
+      .populate("serviceId", "name price uv validityDays deviceCovered") 
       .sort({ createdAt: -1 });
 
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
     const now = new Date();
 
-    const purchasesWithValidity = purchases.map((p) => {
+    const purchasesWithDetails = purchases.map((p) => {
       const obj = p.toObject();
       const service = obj.serviceId;
 
@@ -92,32 +87,31 @@ router.get("/admin", protect, async (req, res) => {
           expired = false;
           const diffMs = expiryDate.getTime() - now.getTime();
           daysLeft = Math.ceil(diffMs / MS_PER_DAY);
-        } else {
-          expired = true;
-          daysLeft = 0;
         }
       }
 
-      // ✅ NEW: block renew if refunded
       const refunded = isRefundedPurchase(obj);
 
       return {
         ...obj,
+        // Ensure devices array is explicitly handled if missing
+        devices: obj.devices || [], 
+        deviceCount: obj.devices ? obj.devices.length : 0,
+        maxAllowedDevices: service?.deviceCovered || 1,
         validity: {
           expired,
           daysLeft,
           expiresAt,
           validityDays,
         },
-        // ✅ frontend can use this to hide/disable renew buttons
         canRenew: !refunded,
         refunded,
       };
     });
 
     return res.json({
-      count: purchasesWithValidity.length,
-      purchases: purchasesWithValidity,
+      count: purchasesWithDetails.length,
+      purchases: purchasesWithDetails,
     });
   } catch (err) {
     console.error("Error fetching admin purchases:", err);

@@ -72,6 +72,7 @@ const ServiceManagement = () => {
     price: "",
     uv: "",
     validityDays: "",
+    deviceCovered: 1
   });
 
   const authConfig = () => {
@@ -183,6 +184,10 @@ const handleRemove = async (id) => {
           <label htmlFor="ServiceDesc">
             <span>Description</span>
           <textarea className={`${inputClass} md:col-span-2`} id="ServiceDesc" placeholder="Description" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
+          </label>
+          <label htmlFor="ServiceDevices">
+            <span>Devices Covered</span>
+          <input className={inputClass} placeholder="Devices Covered" id="ServiceDevices" type="number" value={formData.deviceCovered} onChange={(e) => setFormData({...formData, deviceCovered: e.target.value})} required />
           </label>
           <button type="submit" className="md:col-span-2 bg-neutral-900 text-white py-2.5 rounded-xl font-semibold hover:bg-neutral-800 transition">
             {editingService ? "Save Changes" : "Create Service"}

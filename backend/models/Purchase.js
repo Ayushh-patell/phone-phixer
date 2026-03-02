@@ -19,6 +19,9 @@ const PurchaseSchema = new mongoose.Schema(
     deviceBrand:{ type: String },
     deviceModel:{ type: String },
     deviceImei:{ type: String },
+    devices: [
+      { deviceBrand:{ type: String }, deviceModel:{ type: String }, deviceImei:{ type: String } }
+    ],
 
     status: { type: String, enum: ["completed", 'failed', 'pending'], default: "completed" },
 

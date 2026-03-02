@@ -33,9 +33,16 @@ const ServicesSection = () => {
   const [paymentLoadingId, setPaymentLoadingId] = useState(null);
 
   // Device info (from /users/me, but editable by user)
-  const [deviceBrand, setDeviceBrand] = useState("");
-  const [deviceModel, setDeviceModel] = useState("");
-  const [deviceImei, setDeviceImei] = useState("");
+const [devicesData, setDevicesData] = useState({});
+
+// Add this helper to update nested device data
+const updateDeviceField = (serviceId, index, field, value) => {
+  setDevicesData((prev) => {
+    const serviceDevices = [...(prev[serviceId] || [])];
+    serviceDevices[index] = { ...serviceDevices[index], [field]: value };
+    return { ...prev, [serviceId]: serviceDevices };
+  });
+};
 
   const inputClass = useMemo(
     () =>
@@ -52,19 +59,30 @@ const ServicesSection = () => {
     return token ? { headers: { Authorization: `Bearer ${token}` } } : { headers: {} };
   };
 
-  const fetchServices = async () => {
-    try {
-      setLoadingServices(true);
-      setError("");
-      const res = await axios.get(`${API_BASE_URL}/service`, authConfig());
-      setServices(res.data || []);
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || "Failed to load services.");
-    } finally {
-      setLoadingServices(false);
-    }
-  };
+const fetchServices = async () => {
+  try {
+    setLoadingServices(true);
+    const res = await axios.get(`${API_BASE_URL}/service`, authConfig());
+    const data = res.data || [];
+    setServices(data);
+
+    // INITIALIZE DEVICES BASED ON deviceCovered
+    const initialData = {};
+    data.forEach(s => {
+      const count = s.deviceCovered || 1; // Use the field from your DB
+      initialData[s._id] = Array.from({ length: count }, () => ({
+        deviceBrand: "",
+        deviceModel: "",
+        deviceImei: ""
+      }));
+    });
+    setDevicesData(initialData);
+  } catch (err) {
+    setError("Failed to load services.");
+  } finally {
+    setLoadingServices(false);
+  }
+};
 
   const fetchWalletBalance = async () => {
     try {
@@ -72,10 +90,6 @@ const ServicesSection = () => {
       const res = await axios.get(`${API_BASE_URL}/users/me`, authConfig());
       const user = res.data || {};
       setWalletBalance(Number(user.walletBalance || 0));
-
-      setDeviceBrand(user.deviceBrand || "");
-      setDeviceModel(user.deviceModel || "");
-      setDeviceImei(user.deviceImei || "");
     } catch (err) {
       console.error("Failed to fetch wallet balance:", err);
     } finally {
@@ -152,9 +166,6 @@ const ServicesSection = () => {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_signature: response.razorpay_signature,
               serviceId: service._id,
-              deviceBrand,
-              deviceModel,
-              deviceImei,
               ...extraVerifyPayload,
             },
             authConfig()
@@ -194,10 +205,18 @@ const ServicesSection = () => {
         return;
       }
 
-      if (!deviceBrand.trim() || !deviceModel.trim() || !deviceImei.trim()) {
-        setError("Enter device brand, model, and IMEI before purchase.");
-        return;
-      }
+
+      // Get devices for THIS specific service
+        const currentDevices = devicesData[service._id] || [];
+        
+        // Validation: Check if any field in the array is empty
+        const isInvalid = currentDevices.some(d => !d.deviceBrand.trim() || !d.deviceModel.trim() || !d.deviceImei.trim());
+
+        if (isInvalid) {
+          setError(`Please fill all ${service.deviceCovered} device details for ${service.name}.`);
+          setPaymentLoadingId(null);
+          return;
+        }
 
       const tax = (price * 18) / 100;
 
@@ -206,7 +225,7 @@ const ServicesSection = () => {
           service,
           payAmountInRupees: price,
           tax,
-          extraVerifyPayload: { deviceBrand, deviceModel, deviceImei },
+          extraVerifyPayload: { devices:devicesData },
         });
         return;
       }
@@ -222,9 +241,7 @@ const ServicesSection = () => {
               serviceId: service._id,
               amount: price,
               tax,
-              deviceBrand,
-              deviceModel,
-              deviceImei,
+              devices:devicesData
             },
             authConfig()
           );
@@ -261,9 +278,7 @@ const ServicesSection = () => {
           useWallet: true,
           walletUsed: walletToUse,
           originalPrice: price,
-          deviceBrand,
-          deviceModel,
-          deviceImei,
+          devices:devicesData
         },
       });
     } catch (err) {
@@ -341,55 +356,6 @@ const ServicesSection = () => {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-neutral-700">
-                Brand <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={deviceBrand}
-                onChange={(e) => setDeviceBrand(e.target.value)}
-                className={inputClass}
-                placeholder="e.g. Samsung"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-neutral-700">
-                Model <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={deviceModel}
-                onChange={(e) => setDeviceModel(e.target.value)}
-                className={inputClass}
-                placeholder="e.g. Galaxy S24"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-neutral-700">
-                IMEI <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={deviceImei}
-                  onChange={(e) => setDeviceImei(e.target.value)}
-                  className={`${inputClass} pl-11`}
-                  placeholder="IMEI number"
-                  required
-                />
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
-                  <FiHash className="h-5 w-5" />
-                </div>
-              </div>
-            </div>
-          </div>
-
           {useWallet && (
             <div className="mt-3 text-[11px] text-neutral-600">
               Wallet is used first. Razorpay will charge at least ₹{RAZORPAY_MIN_AMOUNT.toFixed(2)}.
@@ -454,6 +420,37 @@ const ServicesSection = () => {
                       Valid {service.validityDays} days
                     </span>
                   </div>
+                </div>
+
+                <div className="space-y-4 border-t border-neutral-100 pt-5 mt-4">
+                  <p className="text-[10px] font-bold text-neutral-400 uppercase">
+                    Devices Covered: {service.deviceCovered || 1}
+                  </p>
+                  
+                  {(devicesData[service._id] || []).map((device, idx) => (
+                    <div key={idx} className="p-3 bg-neutral-50 rounded-xl border border-neutral-100 space-y-2">
+                      <input 
+                        className={inputClass} 
+                        placeholder="Brand" 
+                        value={device.deviceBrand}
+                        onChange={(e) => updateDeviceField(service._id, idx, 'deviceBrand', e.target.value)}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input 
+                          className={inputClass} 
+                          placeholder="Model" 
+                          value={device.deviceModel}
+                          onChange={(e) => updateDeviceField(service._id, idx, 'deviceModel', e.target.value)}
+                        />
+                        <input 
+                          className={inputClass} 
+                          placeholder="IMEI" 
+                          value={device.deviceImei}
+                          onChange={(e) => updateDeviceField(service._id, idx, 'deviceImei', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <button

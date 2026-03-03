@@ -1339,6 +1339,9 @@ router.get("/admin/user", protect, async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      dob: user.dob,
+      phone: user.phone,
+      address: user.address,
 
       selfVolume: user.selfVolume || 0,
       leftVolume: user.leftVolume || 0,

@@ -95,12 +95,34 @@ const AdminUserDetail = ({ userId }) => {
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           <Info label="Name" value={user.name} />
+
           <Info label="Email" value={user.email} />
+
           <Info label="Date of Birth" value={user.dob} type={'date'} />
+
           <Info label="Phone" value={user.phone} />
+
           <Info label="Address" value={user.address} />
+
           <Info label="Role" value={user.role} />
-          {/* ... rest of your info fields ... */}
+
+          <Info label="Star" value={user.star} />
+
+          <Info label="Wallet" value={user.walletBalance} />
+
+          <Info label="Total Earnings" value={user.totalEarnings} />
+
+          <Info label="Self Volume" value={user.selfVolume} />
+
+          <Info label="Left Volume" value={user.leftVolume} />
+
+          <Info label="Right Volume" value={user.rightVolume} />
+
+          <Info label="RSP" value={user.rsp} />
+
+          <Info label="Total RSP" value={user.Totalrsp} />
+
+          <Info label="Checks Claimed" value={user.checksClaimed} />
         </div>
       </div>
 

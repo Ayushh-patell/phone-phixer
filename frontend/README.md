@@ -17,12 +17,7 @@ If you are developing a production application, we recommend using TypeScript wi
 
 
 popup
-new referr code
 doc upload
 user admin update
-service specific device 
-aadar remove
 home page 3 buttons
-view every purchase
-invoice design change
 

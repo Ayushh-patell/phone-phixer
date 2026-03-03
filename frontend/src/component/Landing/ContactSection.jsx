@@ -54,8 +54,8 @@ const ContactSection = () => {
               {[
                 { label: "Website", value: "phonephixer.in", icon: "globe" },
                 { label: "Email", value: "phonephixerr@gmail.com", icon: "mail" },
-                { label: "Phone", value: "7737178264", icon: "phone", link: "tel:7737178264" },
-                { label: "Location", value: "139, Avadhpuri - II, Jaipur - 302015", icon: "location" },
+                { label: "Phone", value: "9057213756", icon: "phone", link: "tel:9057213756" },
+                { label: "Location", value: "24, Chetany Vihar, Trivani, 10B Scheme, Gopalpura, Durgapura, Jaipur, Rajasthan - 302018", icon: "location" },
               ].map((item, idx) => (
                 <React.Fragment key={idx}>
                   <div className="flex items-start gap-4">

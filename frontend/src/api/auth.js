@@ -46,6 +46,7 @@ export async function registerUser({
   name,
   email,
   password,
+  dob,
   referralCode,
   phone,
   address,
@@ -61,6 +62,7 @@ export async function registerUser({
 
   if (referralCode) body.referralCode = referralCode;
   if (phone) body.phone = phone;
+  if (dob) body.dob = dob;
   if (address) body.address = address;
   if (deviceBrand) body.deviceBrand = deviceBrand;
   if (deviceModel) body.deviceModel = deviceModel;

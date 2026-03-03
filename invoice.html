@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tax Invoice - PHONEPHIXER PRIVATE LIMITED</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            display: flex;
+            justify-content: center;
+            padding: 40px;
+            color: #2d3436;
+        }
+        .invoice-card {
+            background: white;
+            width: 800px;
+            padding: 50px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+            border-radius: 4px;
+            position: relative;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 2px solid #f1f2f6;
+            padding-bottom: 25px;
+            margin-bottom: 30px;
+        }
+        .company-info h1 {
+            margin: 0;
+            font-size: 20px;
+            color: #000;
+            letter-spacing: 0.5px;
+        }
+        .company-details {
+            font-size: 11px;
+            color: #636e72;
+            line-height: 1.5;
+            margin-top: 10px;
+        }
+        .invoice-title-section {
+            text-align: right;
+        }
+        .invoice-title-section h2 {
+            margin: 0;
+            font-size: 28px;
+            color: #2d3436;
+            font-weight: 300;
+        }
+        .invoice-meta {
+            font-size: 13px;
+            margin-top: 12px;
+            line-height: 1.6;
+        }
+        .billing-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            margin-bottom: 40px;
+        }
+        .section-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: #b2bec3;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+        }
+        .info-content p {
+            margin: 2px 0;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th {
+            background-color: #f8f9fa;
+            text-align: left;
+            padding: 12px;
+            font-size: 11px;
+            color: #2d3436;
+            border-top: 1px solid #dfe6e9;
+            border-bottom: 1px solid #dfe6e9;
+        }
+        td {
+            padding: 20px 12px;
+            border-bottom: 1px solid #f1f2f6;
+            font-size: 14px;
+        }
+        .text-right { text-align: right; }
+        .summary-container {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        .summary-box {
+            width: 250px;
+        }
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 14px;
+        }
+        .total-row {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #2d3436;
+            font-weight: bold;
+            font-size: 16px;
+            color: #000;
+        }
+        .footer {
+            margin-top: 80px;
+            padding-top: 20px;
+            border-top: 1px solid #f1f2f6;
+            font-size: 11px;
+            color: #636e72;
+        }
+        .legal-footer {
+            margin-top: 20px;
+            font-size: 9px;
+            color: #b2bec3;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+
+<div class="invoice-card">
+    <div class="header">
+        <div class="company-info">
+            <h1>PHONEPHIXER PRIVATE LIMITED</h1> <div class="company-details">
+                24, Chetany Vihar, Trivani, 10B Scheme, Gopalpura,<br>
+                Durgapura, Jaipur, Rajasthan - 302018 <br><br>
+                <strong>CIN:</strong> U95120RJ2026PTC110366 <br>
+                <strong>PAN:</strong> AAQCP5502R <br>
+                <strong>Email:</strong> phonephixerr@gmail.com
+            </div>
+        </div>
+        <div class="invoice-title-section">
+            <h2>TAX INVOICE</h2>
+            <div class="invoice-meta">
+                <strong>Invoice ID:</strong> 699d7622ef22122f71980067<br>
+                <strong>Date:</strong> 2/24/2026
+            </div>
+        </div>
+    </div>
+
+    <div class="billing-grid">
+        <div class="info-content">
+            <div class="section-label">Service Details</div>
+            <p><strong>Item:</strong> Tier 1 Service</p>
+            <p><strong>Category:</strong> Device Repair & Maintenance</p> </div>
+        <div class="info-content text-right">
+            <div class="section-label">Payment Information</div>
+            <p><strong>Method:</strong> razorpay</p>
+            <p><strong>Status:</strong> Completed / Paid</p>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="text-right">Price (INR)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>
+                    <strong>Tier 1</strong><br>
+                    <small style="color: #636e72;">Professional servicing and maintenance of electronic communication devices.</small> </td>
+                <td class="text-right">₹11,199.00</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="summary-container">
+        <div class="summary-box">
+            <div class="summary-row">
+                <span>Subtotal:</span>
+                <span>₹11,199.00</span>
+            </div>
+            <div class="summary-row">
+                <span>GST:</span>
+                <span>₹1,215.82</span>
+            </div>
+            <div class="summary-row total-row">
+                <span>Amount Paid:</span>
+                <span>₹11,414.82</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <p><strong>Thank you for choosing Phonephixer Private Limited!</strong></p>
+            <p>We specialize in repairing smartphones, tablets, and internal chip-level components.</p> </div>
+        
+        <div class="legal-footer">
+            1. This is a computer-generated document and requires no physical signature.<br>
+            2. All services are governed by the Articles of Association of Phonephixer Private Limited. <br>
+            3. Objects of service are as per the Memorandum of Association registered with the ROC, Rajasthan. <br>
+            4. Subject to Jaipur Jurisdiction.
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

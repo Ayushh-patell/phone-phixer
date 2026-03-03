@@ -42,7 +42,7 @@ router.post("/register", async (req, res) => {
     if (!name || !email || !password || !dob) {
       return res
         .status(400)
-        .json({ message: "Name, email, and password are required" });
+        .json({ message: "Name, email, and password are required", data:`${name} || ${email} || ${password} || ${dob}` });
     }
 
     // Validate email format

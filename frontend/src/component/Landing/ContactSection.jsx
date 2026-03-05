@@ -34,7 +34,7 @@ const ContactSection = () => {
   }, []);
 
   return (
-    <section className="w-full bg-white py-16 md:py-20">
+    <section id="contactSection" className="w-full bg-white py-16 md:py-20">
       <div className="w-full px-6 md:px-10 2xl:px-24">
         <div className="relative grid w-full gap-10 lg:grid-cols-2 lg:items-center">
           {/* LEFT (Contact Info) */}

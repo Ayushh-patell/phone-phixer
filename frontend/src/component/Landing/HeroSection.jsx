@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router";
+import ImageModal from "./Popup";
 
 const HeroSection = () => {
+  const [open, setOpen] = useState(false);
   return (
     <section className="relative w-full h-dvh overflow-hidden bg-primDark">
       {/* Background decorations */}
@@ -65,6 +67,23 @@ const HeroSection = () => {
                   <span className="ml-2 text-lg">→</span>
                 </button>
               </Link>
+                <button
+                  onClick={() => setOpen(true)}
+                  type="button"
+                  className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-black/20 transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 focus:ring-offset-[#00bbb8]"
+                >
+                  Our Offers
+                  <span className="ml-2 text-lg">→</span>
+                </button>
+              <a href="#contactSection" className="w-full sm:w-auto">
+                <button
+                  type="button"
+                  className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-black/20 transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 focus:ring-offset-[#00bbb8]"
+                >
+                  Request Repair
+                  <span className="ml-2 text-lg">→</span>
+                </button>
+              </a>
 
               <div className="text-sm text-slate-900">
                 Instant support
@@ -85,6 +104,7 @@ const HeroSection = () => {
           </div>
         </div>
       </div>
+      <ImageModal open={open} setOpen={setOpen} images={['/popup.jpeg']} />
     </section>
   );
 };

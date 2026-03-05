@@ -68,7 +68,7 @@ const AdminUserDetail = ({ userId }) => {
   const handleUpdateUser = async (formData) => {
     try {
       const headers = getHeaders();
-      await axios.patch(`${API_BASE_URL}/users/admin/user/${userId}`, formData, { headers });
+      await axios.put(`${API_BASE_URL}/users/admin/user/${userId}`, formData, { headers });
       alert("User updated successfully!");
       setShowEditModal(false);
       load(); // Refresh data

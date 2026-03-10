@@ -16,6 +16,7 @@ import refundsRoutes from "./routes/refundRoutes.js";
 import walletRoutes from "./routes/walletRoutes.js";
 import withdrawalWebhookRoutes from "./routes/withdrawlWebhookRoutes.js";
 import withdrawalRoutes from "./routes/withdrawlRoutes.js";
+import kycRoutes from "./routes/kycRoutes.js";
 
 
 
@@ -42,6 +43,7 @@ app.get("/", (req, res) => {
   res.send("Backend is running...");
 });
 
+
 app.use("/api/users", userRoutes);
 app.use("/api/service", serviceRoutes);
 app.use("/api/payments", paymentRoutes);
@@ -53,6 +55,7 @@ app.use("/api/checks", checkRoutes);
 app.use("/api/purchases", purchaseRoutes);
 app.use("/api/refunds", refundsRoutes);
 app.use("/api/wallet", walletRoutes);
+app.use("/api/kyc", kycRoutes);
 
 app.use("/api/withdrawals", withdrawalRoutes);
 

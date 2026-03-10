@@ -14,7 +14,7 @@ const UserSchema = new mongoose.Schema(
     verified: { type: Boolean, default: false },
 
     // Aadhaar / KYC
-    aadhaarVerified: { type: Boolean, default: false },
+    kycVerified: { type: Boolean, default: false },
 
     // Device Info
     deviceBrand: { type: String },

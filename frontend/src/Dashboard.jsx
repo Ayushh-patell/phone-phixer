@@ -21,6 +21,7 @@ import {
   FiList,
   FiCreditCard,
   FiUsers,
+  FiUserCheck,
 } from "react-icons/fi";
 import StarEligibilitySection from "./component/StarEligibility";
 import SettingsSection from "./component/SettingsSection";
@@ -29,12 +30,15 @@ import WithdrawalRequestSection from "./component/WithdrawalRequestSection";
 import AdminUsers from "./component/AdminUsersSection";
 import ServiceManagement from "./component/ServiceManagement";
 import PurchaseView from "./component/PurchaseView";
+import KycSection from "./component/KycRequest";
 
 function Dashboard() {
   const navigate = useNavigate();
   const [checking, setChecking] = useState(true);
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
+  const [needKYC, setNeedKYC] = useState(false);
+
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -48,12 +52,8 @@ function Dashboard() {
       try {
         const data = await verifyToken(token);
 
-        if (data.needAadhaar) {
-          navigate(
-            `/verify-aadhaar?userId=${encodeURIComponent(data.user.id)}`,
-            { replace: true }
-          );
-          return;
+        if (data.needKyc) {
+          setNeedKYC(true);
         }
         
 
@@ -133,6 +133,10 @@ function Dashboard() {
     );
   };
 
+  const kycDeadline = user?.createdAt 
+  ? new Date(new Date(user.createdAt).getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()
+  : "N/A";
+
   const Badge = ({ children, Icon }) => (
     <div className="hidden sm:inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 shadow-sm">
       <Icon className="h-4 w-4 text-neutral-700" />
@@ -195,6 +199,8 @@ function Dashboard() {
                 <NavButton id="stars" label="Star" Icon={FiAward} />
                 <NavButton id="request" label="Request" Icon={FiList} />
                 <NavButton id="withdrawal" label="Withdrawal" Icon={FiCreditCard} />
+                <NavButton id="kyc-request" label="KYC Request" Icon={FiUserCheck} />
+
               </>
               :
               <>
@@ -264,6 +270,7 @@ function Dashboard() {
             <NavButton id="stars" label="Star" Icon={FiAward} />
             <NavButton id="request" label="Request" Icon={FiList} />
             <NavButton id="withdrawal" label="Withdrawal" Icon={FiCreditCard} />
+            <NavButton id="kyc-request" label="KYC Request" Icon={FiUserCheck} />
           </>
           :
           <>
@@ -316,6 +323,24 @@ function Dashboard() {
               <div className="h-1.5 w-full bg-prim" />
               <div className="p-4 md:p-5">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                {needKYC ? 
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                      <div className="flex items-center gap-2">
+                        {/* Optional: Add a small warning icon here */}
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-amber-600">
+                          Action Required: KYC Pending
+                        </div>
+                      </div>
+                      
+                      <div className="mt-2 text-sm md:text-lg font-medium text-amber-900">
+                        Please upload your verification documents before <span className="font-bold underline text-amber-700">{kycDeadline}</span>.
+                      </div>
+                      
+                      <div className="mt-1 text-sm text-amber-700/80 italic">
+                        Unverified accounts will face taxation one month after creation.
+                      </div>
+                    </div>
+                  :
                   <div>
                     <div className="text-[11px] uppercase tracking-wider text-neutral-500">
                       {tabTitle}
@@ -341,9 +366,13 @@ function Dashboard() {
                         ? "Create, Update or Delete Services"
                         : activeTab === "view-purchase"
                         ? "View purchases with date range"
+                        : activeTab === "kyc-request"
+                        ? "View KYC Request"
                         : "Your star level and benefits."}
                     </div>
                   </div>
+
+                }
 
                   <div className="flex flex-wrap gap-2">
                     <div className="inline-flex items-center gap-2 rounded-full border border-prim/40 bg-prim/15 px-3 py-1.5 text-xs font-semibold text-neutral-900">
@@ -384,6 +413,7 @@ function Dashboard() {
             {activeTab === "users" && <AdminUsers user={user} />}
             {activeTab === "service-management" && <ServiceManagement user={user} />}
             {activeTab === "view-purchase" && <PurchaseView />}
+            {activeTab === "kyc-request" && <KycSection user={user} />}
           </main>
         </div>
       </div>

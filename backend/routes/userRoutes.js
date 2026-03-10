@@ -80,7 +80,7 @@ router.post("/register", async (req, res) => {
       dob: dob || null,
       password: hash,
       verified: false,
-      aadhaarVerified: true,
+      kycVerified: false,
       address: address || null,
       deviceBrand: deviceBrand || null,
       deviceModel: deviceModel || null,
@@ -632,18 +632,18 @@ router.post("/verify-token", async (req, res) => {
       return res.status(401).json({ valid: false, message: "Invalid token" });
     }
 
-    const user = await User.findById(decoded.id).select("_id name email admin role verified star Totalrsp aadhaarVerified referralUsed referralActive");
+    const user = await User.findById(decoded.id).select("_id name email admin role verified star Totalrsp kycVerified referralUsed referralActive createdAt");
     if (!user) {
       return res.status(404).json({ valid: false, message: "User not found" });
     }
     const levels = await getStarLevels()
 
     const userStars = levels.find((item) => item.lvl === user.star);
-const needed = (user.referralActive && !user.aadhaarVerified)
+const needed = !user.kycVerified
 
     return res.json({
       valid: true,
-      needAadhaar: needed,
+      needKyc: needed,
       message: "Token is valid",
       user: {
         id: user._id,
@@ -654,6 +654,7 @@ const needed = (user.referralActive && !user.aadhaarVerified)
         referralUsed:user.referralUsed,
         rsp:user.Totalrsp,
         verified: user.verified,
+        createdAt:user.createdAt,
       },
       tokenPayload: {
         id: decoded.id,

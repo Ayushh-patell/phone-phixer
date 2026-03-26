@@ -6,7 +6,7 @@ const UserSchema = new mongoose.Schema(
     // Basic Info
     name: { type: String, required: true },
     email: { type: String, unique: true, sparse: true, required: true },
-    phone: { type: String, unique: true, sparse: true },
+    phone: { type: String, sparse: true },
     password: { type: String, required: true },
 
     aadhaarNumber: { type: String },

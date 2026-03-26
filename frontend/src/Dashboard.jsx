@@ -403,7 +403,7 @@ function Dashboard() {
             </div>
 
             {activeTab === "overview" && <OverviewSection user={user} />}
-            {activeTab === "services" && <ServicesSection />}
+            {activeTab === "services" && <ServicesSection user={user} needKYC={needKYC} />}
             {activeTab === "purchases" && <PurchasesSection />}
             {activeTab === "stats" && <StarsSection />}
             {activeTab === "stars" && <StarEligibilitySection />}

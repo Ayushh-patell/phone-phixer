@@ -20,7 +20,7 @@ const RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 // Razorpay minimum chargeable amount (in INR, not paise)
 const RAZORPAY_MIN_AMOUNT = 1;
 
-const ServicesSection = () => {
+const ServicesSection = ({user, needKYC}) => {
   const [services, setServices] = useState([]);
   const [loadingServices, setLoadingServices] = useState(false);
 
@@ -58,6 +58,10 @@ const updateDeviceField = (serviceId, index, field, value) => {
     const token = sessionStorage.getItem("token") || TEST_JWT;
     return token ? { headers: { Authorization: `Bearer ${token}` } } : { headers: {} };
   };
+
+const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+const addLateKYCTax = needKYC && (new Date().getTime() - new Date(user.createdAt).getTime()) > ONE_MONTH_MS;
 
 const fetchServices = async () => {
   try {
@@ -469,7 +473,7 @@ const fetchServices = async () => {
                   ) : (
                     <>
                       <FiCheckCircle className="h-4.5 w-4.5" />
-                      Buy for ₹{Number(service.price || 0).toFixed(0)} <span className=" text-xs text-neutral-600">+18% GST</span>
+                      Buy for ₹{Number(service.price || 0).toFixed(0)} <span className=" text-xs text-neutral-600">+18% GST</span> {addLateKYCTax && <span className=" text-xs text-neutral-600">+ 5% Late Tax</span>}
                     </>
                   )}
                 </button>

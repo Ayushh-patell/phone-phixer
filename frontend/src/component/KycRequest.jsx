@@ -36,10 +36,12 @@ const KycSection = ({ user }) => {
   const isAdmin = !!(user?.admin || user?.isAdmin || user?.role === "admin");
 //   const isAdmin = false;
   
-
-  const authConfig = () => ({
-    headers: { Authorization: `Bearer ${sessionStorage.getItem("token") || TEST_JWT}` }
-  });
+const authConfig = () => {
+  const token = sessionStorage.getItem("token");
+  
+  return {
+    headers: { Authorization: `Bearer ${token}` }
+  }};
 
   const fetchKycData = async () => {
     try {

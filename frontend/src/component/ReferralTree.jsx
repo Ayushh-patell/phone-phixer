@@ -480,6 +480,7 @@ const ReferralTree = () => {
         regular.push(user);
         continue;
       }
+      
 
       if (!user.referralActive && selfUV >= hotMinUV) {
         hot.push(user);
@@ -491,6 +492,8 @@ const ReferralTree = () => {
 
     return { regularRequests: regular, hotPositionRequests: hot, pendingRequests: pending };
   }, [referralRequests, hotMinUV]);
+
+  
 
   const selectedParentNode = useMemo(() => {
     if (!selectedPosition || !treeData?.nodes) return null;
@@ -565,6 +568,7 @@ const ReferralTree = () => {
     // ✅ TreeNode placement API: parentUser + side (L/R)
     const side = selectedPosition.side === "left" ? "left" : "right";
 
+    
     try {
       setPlacementLoading(true);
 
@@ -901,7 +905,7 @@ const ReferralTree = () => {
                           <button
                             key={id}
                             type="button"
-                            onClick={() => handleSelectPlacementUser(user, "pending")}
+                            // onClick={() => handleSelectPlacementUser(user, "pending")}
                             className={[
                               "w-full rounded-xl border px-3 py-2 text-left text-[11px] transition",
                               isSelected
